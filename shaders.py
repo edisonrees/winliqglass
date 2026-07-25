@@ -15,8 +15,9 @@ magnified captures of an iOS 26 lock screen:
 * the body tint is adaptive: it takes the polarity of whatever is behind it,
   going near-black over dark content and near-white over light content, so
   glyphs on top keep their contrast either way;
-* the drop shadow is adaptive too — clearly present over light backgrounds,
-  almost gone over dark ones.
+* the drop shadow, when enabled, is adaptive too — present over light
+  backgrounds, almost gone over dark ones. It ships off: `uShadow` is zero and
+  the rim hairline carries the separation.
 """
 
 VERT = """

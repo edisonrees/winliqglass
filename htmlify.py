@@ -12,8 +12,9 @@ translation is deliberate rather than mechanical:
 * fringe    -> a masked conic-gradient ring, the CSS stand-in for the spectral
                 edge separation;
 * specular  -> a 145deg linear-gradient sweep in `screen`, matching the key /
-                fill pair used by the shader;
-* shadow    -> a plain drop `box-shadow`.
+                fill pair used by the shader.
+
+No drop shadow, matching the renderer: the rim hairline carries the separation.
 
 `element_css` returns just the rule, `element_html` a self-contained snippet,
 `scene_html` a whole page.
@@ -39,7 +40,6 @@ GLASS_VARS = """  --lg-blur: 2px;
   --lg-rim: rgba(255, 255, 255, 0.72);
   --lg-rim-fill: rgba(255, 255, 255, 0.20);
   --lg-glow: rgba(255, 255, 255, 0.05);
-  --lg-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
   --lg-fringe: 0.28;"""
 
 BASE_CSS = """.lg {
@@ -48,8 +48,7 @@ BASE_CSS = """.lg {
   background: var(--lg-tint);
   -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
   backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-saturate));
-  box-shadow: var(--lg-shadow),
-              inset 0 1px 0 var(--lg-rim),
+  box-shadow: inset 0 1px 0 var(--lg-rim),
               inset 0 -1px 0 var(--lg-rim-fill),
               inset 0 0 10px var(--lg-glow);
   isolation: isolate;

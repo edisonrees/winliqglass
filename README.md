@@ -38,7 +38,7 @@ a narrow bevel, a clear interior.
 | Spectral edge | Eight wavelength taps recombined through a narrow RGB response. The chromatic part of the residual is amplified on its own, so the fringe saturates without putting luminance ringing on high-contrast edges. Gain is kept low — enough to notice when magnified, not enough to read as broken chromatic aberration. |
 | Specular | Key light above-left, fill below-right, gated to the outer bevel — a flat top facing the viewer would otherwise wash the whole interior with constant sheen, and spreading the highlight inward reads as haze. |
 | Adaptive tint | A wide mip of the wall behind sets the body polarity: near-black over dark content, near-white over light, so overlaid glyphs keep contrast on any wallpaper. |
-| Adaptive shadow | Tight, soft, offset down, and scaled by background luminance — visible over light content, nearly gone over dark. |
+| Shadow | Off. The rim hairline carries the separation on its own. `uShadow` still exists — an adaptive drop shadow scaled by background luminance — if you want it back. |
 | Fresnel + hairline | Edge reflectivity rises at grazing angles; a bright hairline traces the silhouette, brightest where it faces the key light. |
 | Touch light | Pressing illuminates the glass from the pointer outward. |
 
