@@ -1,4 +1,23 @@
-"""GLSL sources for the Liquid Glass renderer."""
+"""GLSL sources for the Liquid Glass renderer.
+
+The lens model follows what Apple's material actually does on device, read off
+magnified captures of an iOS 26 lock screen:
+
+* the rim is a *bevel* — a circular thickness profile that bends background
+  light outward, hard enough near the boundary that distant background folds
+  into visible compression rings;
+* dispersion is spectral, not an R/B split. Sampling six wavelengths across
+  the visible band and recombining them gives the orange -> green -> cyan ->
+  magenta run seen hugging high-curvature corners, and it fades to nothing in
+  the flat interior;
+* two lights (key above-left, fill below-right) produce the double specular
+  arc and the bright hairline that traces every silhouette;
+* the body tint is adaptive: it takes the polarity of whatever is behind it,
+  going near-black over dark content and near-white over light content, so
+  glyphs on top keep their contrast either way;
+* the drop shadow is adaptive too — clearly present over light backgrounds,
+  almost gone over dark ones.
+"""
 
 VERT = """
 #version 330
@@ -11,10 +30,7 @@ void main(){
 """
 
 # One pass of "liquid glass": evaluates a smooth-min SDF field over up to
-# MAXS shapes, then shades the interior as a lens — a circular thickness
-# profile bends the background hard at the rim with chromatic dispersion,
-# frost is a real multi-tap disk blur, and the edge is defined by the
-# compression of the refracted image rather than painted highlights.
+# MAXS shapes, then shades the interior as a lens.
 GLASS_FRAG = """
 #version 330
 uniform sampler2D uBg;
@@ -29,7 +45,17 @@ uniform float uBend;     // refraction depth, px
 uniform float uEdge;     // lens band width, px
 uniform float uAniso;    // horizontal bend damping (1 = isotropic)
 uniform float uDisp;     // chromatic dispersion multiplier (1 = default)
-uniform float uShadow;
+uniform float uShadow;   // drop shadow strength
+uniform float uShadowR;  // drop shadow softness, px
+uniform float uSpec;     // specular strength
+uniform float uShine;    // specular exponent
+uniform vec3  uKey;      // key light direction
+uniform vec3  uFill;     // fill light direction
+uniform float uAdapt;    // adaptive light/dark body tint amount
+uniform float uSat;      // saturation concentration
+uniform float uRimLit;   // bright hairline strength
+uniform vec2  uTouch;    // interactive illumination centre, px
+uniform float uTouchA;   // interactive illumination strength
 
 #define MAXS 48
 uniform int   uKind[MAXS];
@@ -113,6 +139,20 @@ void materialAt(vec2 pix, out vec4 tnt, out float rimb){
 
 vec2 bgUV(vec2 uv){ return clamp(uv * uUvA + uUvB, uUvB, uUvA + uUvB); }
 
+float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+
+// Smooth RGB response for a normalised wavelength t in [0,1]: blue at the
+// short end, green mid, red long. Recombining offset taps weighted by this
+// yields a continuous spectral fringe rather than three hard colour ghosts.
+// The bumps have to stay narrow: widen them and each channel ends up
+// averaging most of the offset range, which blurs the fringe out instead of
+// separating it into colour.
+vec3 spectrum(float t){
+    return vec3(exp(-pow((t - 0.84) * 3.55, 2.0)),
+                exp(-pow((t - 0.50) * 3.55, 2.0)),
+                exp(-pow((t - 0.16) * 3.55, 2.0)));
+}
+
 // 16-tap golden-angle spiral disk blur with per-pixel rotation: smooth
 // frost at any radius, no mip blockiness.
 vec3 blurSample(vec2 uv, float radius, vec2 seed){
@@ -134,11 +174,17 @@ void main(){
     float d = field(pix);
     vec3 bg = texture(uBg, bgUV(vUV)).rgb;
 
+    // ---- adaptive drop shadow -------------------------------------------
+    // Wide and soft, offset down. Apple's reads clearly over light content
+    // and all but disappears over dark content, so scale it by how bright
+    // the wall behind the contact point is.
     vec3 base = bg;
     if (uShadow > 0.001){
-        float ds = field(pix - vec2(0.0, 9.0));
-        float sh = exp(-max(ds, 0.0) / 22.0) * uShadow;
-        base *= 1.0 - sh * smoothstep(-1.0, 3.0, d);
+        float ds = field(pix - vec2(0.0, uShadowR * 0.42));
+        float sh = exp(-max(ds, 0.0) / max(uShadowR, 1.0));
+        float amb = luma(textureLod(uBg, bgUV(vUV), 7.0).rgb);
+        sh *= uShadow * mix(0.35, 1.0, smoothstep(0.10, 0.55, amb));
+        base *= 1.0 - sh * smoothstep(-2.0, 6.0, d);
     }
 
     if (d > 2.0){ fragColor = vec4(base, 1.0); return; }
@@ -159,38 +205,100 @@ void main(){
     off.x *= uAniso;
     vec2 offUV = vec2(off.x, -off.y) / uRes;
 
-    // chromatic dispersion grows with how hard the light is being bent;
     // slight lod keeps the heavily-compressed rim from aliasing
-    float disp = clamp(0.38 * clamp(uBend / 70.0, 0.0, 1.0) * uDisp, 0.0, 2.4);
     float aaLod = clamp(log2(1.0 + prof * uBend * 0.10), 0.0, 2.5);
-    vec3 refr;
-    refr.r = textureLod(uBg, bgUV(vUV + offUV * (1.0 + disp)), aaLod).r;
-    refr.g = textureLod(uBg, bgUV(vUV + offUV               ), aaLod).g;
-    refr.b = textureLod(uBg, bgUV(vUV + offUV * (1.0 - disp)), aaLod).b;
+
+    // ---- spectral refraction --------------------------------------------
+    // Dispersion is an edge phenomenon: it tracks the lens profile, so the
+    // flat interior stays clean and the fringe piles up where curvature is
+    // highest (corners of a rounded rect, the poles of a capsule).
+    // The angle of incidence climbs across the whole bevel, so the fringe
+    // tracks `rim` rather than the much later-rising displacement profile —
+    // keyed to `prof` the coloured band is barely three pixels wide.
+    float dispW = pow(smoothstep(0.20, 0.98, rim), 1.15);
+    float spread = 1.25 * uDisp * dispW * clamp(uBend / 60.0, 0.0, 1.6);
+    vec3 plain = textureLod(uBg, bgUV(vUV + offUV), aaLod).rgb;
+    vec3 refr = plain;
+    if (spread > 0.004){
+        vec3 acc = vec3(0.0), wsum = vec3(0.0);
+        for (int i = 0; i < 8; i++){
+            float t = (float(i) + 0.5) / 8.0;
+            float s = 1.0 + (0.5 - t) * spread;   // short wavelengths bend more
+            vec3 w = spectrum(t);
+            acc += w * textureLod(uBg, bgUV(vUV + offUV * s), aaLod).rgb;
+            wsum += w;
+        }
+        // Averaging eight taps recovers the mean but washes the colour out.
+        // Split the residual and amplify only its chromatic part: the fringe
+        // gets Apple's saturation without the luminance ringing that scaling
+        // the whole residual would put on high-contrast edges.
+        vec3 dres = (acc / wsum) - plain;
+        float dl = dot(dres, vec3(0.33333));
+        refr = clamp(plain + vec3(dl) + (dres - vec3(dl)) * (1.0 + 3.4 * uDisp),
+                     0.0, 1.0);
+    }
 
     if (uFrost > 0.5){
         vec3 soft = blurSample(vUV + offUV, uFrost, pix);
         refr = mix(refr, soft, clamp((uFrost - 0.5) / 2.0, 0.0, 1.0));
     }
 
-    float lum = dot(refr, vec3(0.299, 0.587, 0.114));
-    vec3 milk = mix(vec3(lum), vec3(1.0), 0.35);
-    vec3 glass = mix(refr, milk, uOpacity);
+    // glass concentrates colour a little as it bends it
+    float rl = luma(refr);
+    refr = clamp(mix(vec3(rl), refr, 1.0 + uSat), 0.0, 1.0);
+
+    // ---- adaptive body tint ----------------------------------------------
+    // A wide mip of the wall behind gives the ambient level; the body takes
+    // that polarity so overlaid glyphs keep contrast on any wallpaper.
+    float amb = luma(textureLod(uBg, bgUV(vUV), 7.0).rgb);
+    vec3 adapt = mix(vec3(0.055, 0.060, 0.072), vec3(1.0),
+                     smoothstep(0.16, 0.60, amb));
+    vec3 body = mix(mix(vec3(rl), vec3(1.0), 0.35), adapt, uAdapt);
+    vec3 glass = mix(refr, body, uOpacity);
 
     vec4 tnt;
     float rimb;
     materialAt(pix, tnt, rimb);
     glass = mix(glass, tnt.rgb, clamp(tnt.a, 0.0, 1.0));
 
-    vec2 L = normalize(vec2(-0.55, -0.83));
-    float lit = dot(n, L);
+    // ---- lighting ---------------------------------------------------------
+    // Lift the 2D gradient into a bevel normal: flat on top, rolling over to
+    // face outward at the silhouette.
+    vec3 N = normalize(vec3(n * prof, max(1.0 - prof, 0.06)));
+    vec3 V = vec3(0.0, 0.0, 1.0);
+    vec3 K = normalize(uKey);
+    vec3 F = normalize(uFill);
+
+    // Only the rolled edge reflects. A flat top facing the viewer would
+    // otherwise return a near-1 half-vector dot and wash the whole interior
+    // with a constant sheen, which is exactly what Apple's material does not
+    // do — its highlights live on the bevel.
+    float bevel = smoothstep(0.02, 0.40, prof);
+    float sKey  = pow(max(dot(normalize(K + V), N), 0.0), uShine) * bevel;
+    float sFill = pow(max(dot(normalize(F + V), N), 0.0), uShine * 0.65) * bevel;
+    float fres  = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
+
+    // over dark content the highlights have to work harder to read
+    float lift = mix(1.30, 0.80, smoothstep(0.12, 0.62, amb));
+    float spec = (sKey + 0.40 * sFill) * uSpec * lift;
 
     // compression shading near the rim defines the edge — no painted ring
-    glass *= 1.0 - 0.10 * pow(rim, 3.0);
+    glass *= 1.0 - 0.13 * pow(rim, 3.0);
+    glass += vec3(spec) + vec3(fres * 0.07 * uSpec * lift);
 
-    // hairline edge, strength set per shape (kept near zero everywhere)
-    float line = exp(-pow((d + 1.5) / 1.1, 2.0));
-    glass += vec3(line * rimb * (0.45 + 0.40 * abs(lit)));
+    // bright hairline tracing the silhouette, brightest where it faces a light
+    float line = exp(-pow((d + 1.35) / 0.95, 2.0));
+    float facing = 0.30 + 0.70 * max(dot(n, normalize(K.xy)), 0.0);
+    glass += vec3(line * uRimLit * facing * lift);
+
+    // per-shape rim override (selection ring, contour hints)
+    glass += vec3(line * rimb * (0.45 + 0.40 * abs(dot(n, normalize(K.xy)))));
+
+    // interactive illumination: pressing lights the glass from the touch point
+    if (uTouchA > 0.001){
+        float td = length(pix - uTouch);
+        glass += vec3(uTouchA * exp(-td / 70.0) * inside);
+    }
 
     float alpha = smoothstep(1.0, -1.0, d);
     fragColor = vec4(mix(base, clamp(glass, 0.0, 1.0), alpha), 1.0);
