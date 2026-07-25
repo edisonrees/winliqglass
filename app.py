@@ -24,14 +24,21 @@ from PIL import Image, ImageDraw
 
 import moderngl
 
+Image.MAX_IMAGE_PIXELS = None   # the 6K desktop pictures trip Pillow's bomb guard
+
 from engine import (GlassRenderer, Shape, hit_topmost,
                     KIND_CIRCLE, KIND_RRECT, KIND_TRI, KIND_RING, KIND_PENT, MAXS)
 from hud import HUD
+import htmlify
 
 TOOLS = ['select', 'circle', 'rect', 'pill', 'tri', 'switch', 'slider']
 UTILS = ['open', 'save', 'reset', 'trash']
 
-DEFAULTS = {'frost': 0.10, 'bend': 0.50, 'merge': 0.45, 'glass': 0.16}
+# Frost defaults to zero. Liquid Glass is refractive, not frosted — the heavy
+# backdrop blur is the iOS 15-18 look Apple moved away from, and it is what
+# makes a render read as fogged plastic instead of glass. The slider is still
+# there for when you want it.
+DEFAULTS = {'frost': 0.0, 'bend': 0.42, 'merge': 0.34, 'glass': 0.10}
 
 HINTS = {
     'select': 'Select · drag move · wheel round · Shift+wheel size · Q/E rotate',
@@ -43,17 +50,42 @@ HINTS = {
     'switch': 'Switch · click canvas to place · tap knob, drag, let go',
     'slider': 'Slider · click canvas to place · drag knob to slide, track to move',
 }
-GLOBAL_HINT = '  |  Shift+drag menu · O image · Ctrl+S/L scene · Del delete'
+GLOBAL_HINT = ('  |  right-click HTMLify · Shift+drag menu · O image'
+               ' · Ctrl+S/L scene · Del delete')
 
-BLUE = (0.12, 0.46, 0.88, 0.95)
-GREY = (0.60, 0.61, 0.64, 0.90)
+CTX_ITEMS = ['Export element as HTML', 'Export element as CSS',
+             'Export whole scene as HTML']
+
+BLUE = (0.04, 0.48, 1.00, 0.95)     # systemBlue
+GREY = (0.55, 0.56, 0.60, 0.75)
+GREEN = (0.20, 0.78, 0.35)          # systemGreen, switch track when on
+
+LIGHT_ANGLE = math.radians(-125.0)  # key light above and to the left
 
 SCENE_FILE = 'scene.json'
 
 
 # ------------------------------------------------------------ background
 
-def make_default_background(w=1920, h=1200):
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+# macOS 27 "Golden Gate" desktop picture, light and dark. Its broad smooth
+# ribbons and hairline caustics are what a lens has to chew on, so it doubles
+# as the reference surface for tuning refraction.
+WALLPAPER = os.path.join(HERE, 'golden-gate.png')
+WALLPAPER_DARK = os.path.join(HERE, 'golden-gate-dark.png')
+
+
+def default_background(dark=False):
+    """Golden Gate if it is on disk, otherwise the generated studio grid."""
+    path = WALLPAPER_DARK if dark else WALLPAPER
+    try:
+        return Image.open(path)
+    except Exception:
+        return make_studio_background()
+
+
+def make_studio_background(w=1920, h=1200):
     """Clean studio grid: soft neutral gradient + hairline grid lines."""
     ss = 2
     W, H = w * ss, h * ss
@@ -147,9 +179,10 @@ class Slider:
 
 
 class Switch:
-    """iOS-proportioned toggle. Idle: small opaque white disc. Pressed: the
-    knob grows into an oblong glass lens that pops past the track."""
-    W, H = 62, 36
+    """iOS toggle at the system 51x31 ratio, scaled up 1.22x for the studio.
+    Idle the knob is a near-opaque disc; pressed it grows into an oblong glass
+    lens that pops past the track and refracts it."""
+    W, H = 62, 38
 
     def __init__(self, x, y, on=False):
         self.x, self.y = x, y
@@ -162,7 +195,7 @@ class Switch:
 
     @property
     def r(self):
-        return self.H / 2 - 2.5
+        return self.H / 2 - 2.4
 
     def knob_xy(self):
         m = self.H / 2
@@ -179,9 +212,10 @@ class Switch:
 
     def track_shape(self):
         g = self.t
-        col = (0.90 - 0.70 * g, 0.90 - 0.12 * g, 0.92 - 0.57 * g)
+        off = (0.78, 0.78, 0.80)
+        col = tuple(off[i] + (GREEN[i] - off[i]) * g for i in range(3))
         return Shape(KIND_RRECT, self.x, self.y, self.W / 2, self.H / 2,
-                     rad=self.H / 2, tint=(*col, 0.90 - 0.55 * self.pop),
+                     rad=self.H / 2, tint=(*col, 0.88 - 0.50 * self.pop),
                      merge=False, rim=-0.15)
 
     def knob_shape(self):
@@ -189,7 +223,7 @@ class Switch:
         hw = self.r * (1.0 + 0.45 * self.pop)
         hh = self.r * (1.0 + 0.15 * self.pop)
         return Shape(KIND_RRECT, kx, ky, hw, hh, rad=hh,
-                     tint=(1, 1, 1, 0.97 - 0.69 * self.pop),
+                     tint=(1, 1, 1, 0.90 - 0.68 * self.pop),
                      merge=False, rim=-0.25)
 
     def step(self, dt):
@@ -249,9 +283,56 @@ class Menu:
             hh = max(ph / 2 * e, 4.0)
             out.append(Shape(KIND_RRECT, cx, cy, hw, hh,
                              rad=min(20.0, hh),
-                             tint=(1, 1, 1, min(0.60 * pop * 1.4, 0.60)),
+                             tint=(1, 1, 1, min(0.30 * pop * 1.4, 0.30)),
                              merge=False, rim=-0.16))
         return out
+
+    def step(self, dt):
+        ease = 1.0 - math.exp(-dt * 17.0)
+        self.pop += ((1.0 if self.open else 0.0) - self.pop) * ease
+
+
+class ContextMenu:
+    """Right-click menu over a single element: the HTMLify export targets.
+    Scales open from the click point like the toolbar Menu does."""
+    W = 208
+    ITEM_H = 38
+    PAD = 22
+
+    def __init__(self, x, y, target, title, items):
+        self.x, self.y = x, y
+        self.target = target
+        self.title = title
+        self.items = items
+        self.open = True
+        self.pop = 0.0
+        self.hover = None
+
+    def panel_rect(self):
+        h = self.ITEM_H * len(self.items) + self.PAD + 8
+        return (self.x, self.y, self.W, h)
+
+    def item_at(self, mx, my):
+        if self.pop < 0.55:
+            return None
+        px, py, pw, ph = self.panel_rect()
+        iy0 = py + self.PAD
+        iyN = iy0 + self.ITEM_H * len(self.items)
+        if px <= mx <= px + pw and iy0 <= my <= iyN:
+            return int((my - iy0) / self.ITEM_H)
+        return None
+
+    def shapes(self):
+        if self.pop <= 0.005:
+            return []
+        px, py, pw, ph = self.panel_rect()
+        e = 1.0 - (1.0 - self.pop) ** 3
+        cx = self.x + (px + pw / 2 - self.x) * e
+        cy = self.y + (py + ph / 2 - self.y) * e
+        return [Shape(KIND_RRECT, cx, cy, max(pw / 2 * e, 4.0),
+                      max(ph / 2 * e, 4.0), rad=min(18.0, ph / 2 * e),
+                      tint=(1, 1, 1, min(0.30 * self.pop * 1.4, 0.30)),
+                      merge=False, rim=-0.16)]
 
     def step(self, dt):
         ease = 1.0 - math.exp(-dt * 17.0)
@@ -277,6 +358,11 @@ class State:
         self.toast = None
         self.toast_until = 0.0
         self.time = 0.0
+        self.touch = (-1e4, -1e4)   # interactive illumination centre
+        self.touch_a = 0.0
+        self.pressing = False
+        self.ctx_menu = None        # right-click HTMLify menu
+        self.cursor = None          # (x, y, down) drawn by the recorder only
         self.layout(size)
 
     def layout(self, size):
@@ -326,19 +412,45 @@ class State:
         out.extend(sw.knob_shape() for sw in self.switches)
         for m in self.menus:
             out.extend(m.shapes())
+        if self.ctx_menu is not None:
+            out.extend(self.ctx_menu.shapes())
         return out[:MAXS]
 
+    def light_dirs(self):
+        """Key above-left, fill below-right. The pair is what gives Liquid
+        Glass its double rim arc; drifting the angle makes the specular travel
+        the way it does when a phone is tilted."""
+        a = LIGHT_ANGLE + 0.22 * math.sin(self.time * 0.45)
+        kx, ky = math.cos(a), math.sin(a)
+        return (kx * 0.62, ky * 0.62, 0.78), (-kx * 0.55, -ky * 0.55, 0.62)
+
+    def _light_params(self):
+        key, fill = self.light_dirs()
+        return dict(uKey=key, uFill=fill,
+                    uTouch=self.touch, uTouchA=self.touch_a * 0.16)
+
     def content_params(self):
-        return dict(uOpacity=self.val('glass'),
-                    uFrost=self.val('frost') * 22.0,
-                    uBend=self.val('bend') * 90.0,
-                    uMergeK=4.0 + self.val('merge') * 86.0,
-                    uEdge=18.0, uAniso=1.0, uDisp=1.0, uShadow=0.0)
+        p = dict(uOpacity=self.val('glass'),
+                 uFrost=self.val('frost') * 22.0,
+                 uBend=self.val('bend') * 88.0,
+                 uMergeK=4.0 + self.val('merge') * 86.0,
+                 uEdge=12.0, uAniso=1.0, uDisp=0.70,
+                 # no drop shadow: the rim hairline carries the separation
+                 uShadow=0.0, uShadowR=14.0,
+                 uSpec=0.30, uShine=22.0,
+                 uAdapt=0.50, uSat=0.07, uRimLit=0.30)
+        p.update(self._light_params())
+        return p
 
     def ui_params(self):
-        return dict(uOpacity=0.15 + 0.25 * self.val('glass'),
-                    uFrost=0.0, uBend=20.0, uMergeK=26.0,
-                    uEdge=12.0, uAniso=0.35, uDisp=1.0, uShadow=0.0)
+        p = dict(uOpacity=0.10 + 0.18 * self.val('glass'),
+                 uFrost=0.0, uBend=21.0, uMergeK=26.0,
+                 uEdge=7.0, uAniso=0.80, uDisp=0.85,
+                 uShadow=0.0, uShadowR=9.0,
+                 uSpec=0.34, uShine=26.0,
+                 uAdapt=0.48, uSat=0.06, uRimLit=0.34)
+        p.update(self._light_params())
+        return p
 
     def hud_state(self):
         return dict(
@@ -349,6 +461,7 @@ class State:
             toast=self.toast,
             tool=self.tool,
             hover=self.hover_icon,
+            cursor=self.cursor,
             tool_slots=list(self.tool_slots),
             util_slots=list(self.util_slots),
             sliders=[(s.label, s.x0, s.x1, s.cy, s.v) for s in self.sliders],
@@ -356,7 +469,12 @@ class State:
                         pad=m.PAD, ih=m.ITEM_H,
                         items=[(lbl, ic) for lbl, ic, _ in m.ITEMS],
                         hover=m.hover)
-                   for m in self.menus])
+                   for m in self.menus],
+            ctx=None if self.ctx_menu is None else
+                dict(pop=self.ctx_menu.pop, panel=self.ctx_menu.panel_rect(),
+                     pad=self.ctx_menu.PAD, ih=self.ctx_menu.ITEM_H,
+                     title=self.ctx_menu.title, items=self.ctx_menu.items,
+                     hover=self.ctx_menu.hover))
 
     def say(self, msg, secs=2.5):
         self.toast = msg
@@ -364,26 +482,45 @@ class State:
 
     def step(self, dt):
         self.time += dt
+        ease = 1.0 - math.exp(-dt * 14.0)
+        self.touch_a += ((1.0 if self.pressing else 0.0) - self.touch_a) * ease
         for sl in self.all_sliders():
             sl.step(dt)
         for sw in self.switches:
             sw.step(dt)
         for m in self.menus:
             m.step(dt)
+        if self.ctx_menu is not None:
+            self.ctx_menu.step(dt)
+            if not self.ctx_menu.open and self.ctx_menu.pop < 0.01:
+                self.ctx_menu = None
 
 
 def demo_scene(state):
+    """Laid out as fractions of the window so the scene stays composed at any
+    size, and clear of the bottom-left toolbars and the right-hand sliders."""
+    W, H = state.size
+    r = min(W / 1280.0, H / 800.0)
+
+    def P(fx, fy):
+        return fx * W, fy * H
+
+    # Control-scale and discrete, the way Apple's glass actually appears: a
+    # button, a capsule, a card, a mark. Oversized blobs at a low merge
+    # threshold gel into one amoeba and stop reading as an interface.
     state.content = [
-        Shape(KIND_CIRCLE, 392, 300, 96, 96),
-        Shape(KIND_RRECT, 690, 300, 190, 96, rad=96),
-        Shape(KIND_RRECT, 270, 520, 110, 34, rad=34),
-        Shape(KIND_TRI, 590, 525, 60, 60, rad=12),
+        Shape(KIND_CIRCLE, *P(0.24, 0.31), 46 * r, 46 * r),
+        Shape(KIND_RRECT, *P(0.42, 0.31), 74 * r, 34 * r, rad=34 * r),
+        Shape(KIND_RRECT, *P(0.60, 0.31), 58 * r, 58 * r, rad=20 * r),
+        Shape(KIND_TRI, *P(0.30, 0.56), 46 * r, 46 * r, rad=10 * r),
     ]
-    state.switches = [Switch(930, 250, on=True), Switch(930, 320, on=False)]
-    demo = Slider(length=300, v=0.55, knob=(26, 17))
-    demo.place(470, 650)
+    sx = 0.72 * W
+    state.switches = [Switch(sx, H * 0.27, on=True),
+                      Switch(sx, H * 0.37, on=False)]
+    demo = Slider(length=0.24 * W, v=0.55, knob=(24 * r, 15 * r))
+    demo.place(*P(0.34, 0.75))
     state.play_sliders = [demo]
-    state.menus = [Menu(1180, 120)]
+    state.menus = [Menu(*P(0.89, 0.13))]
     state.selected = None
 
 
@@ -466,7 +603,7 @@ class App:
                 bg = Image.open(image_path)
             except Exception as e:
                 print('could not open image:', e)
-        self.renderer.set_background(bg or make_default_background())
+        self.renderer.set_background(bg or default_background())
 
         self.state = State(size)
         demo_scene(self.state)
@@ -537,6 +674,54 @@ class App:
             st.content.remove(s)
         st.selected = None
 
+    def _pick(self, mx, my):
+        """Topmost interactive object under the cursor, controls before art."""
+        st = self.state
+        for m in reversed(st.menus):
+            if m.hit_button(mx, my):
+                return m
+        for sl in reversed(st.play_sliders):
+            if sl.hit_knob(mx, my) or sl.hit_track(mx, my):
+                return sl
+        for sw in reversed(st.switches):
+            if sw.hit_knob(mx, my) or sw.hit_body(mx, my):
+                return sw
+        return hit_topmost(st.content, mx, my)
+
+    def _open_ctx(self, mx, my):
+        st = self.state
+        target = self._pick(mx, my)
+        if target is None:
+            st.ctx_menu = None
+            st.say('Right-click an element to HTMLify it')
+            return
+        st.selected = target
+        _, title = htmlify.describe(target)
+        x = min(mx, st.size[0] - ContextMenu.W - 12)
+        h = ContextMenu.ITEM_H * len(CTX_ITEMS) + ContextMenu.PAD + 8
+        y = min(my, st.size[1] - h - 12)
+        st.ctx_menu = ContextMenu(x, y, target, 'HTMLify · ' + title,
+                                  list(CTX_ITEMS))
+        self.hud_dirty = True
+
+    def _run_ctx(self, idx):
+        st = self.state
+        cm = st.ctx_menu
+        if cm is None:
+            return
+        try:
+            if idx == 2:
+                p = htmlify.write_scene(st, base=HERE,
+                                        bg=os.path.basename(WALLPAPER))
+            else:
+                p = htmlify.write_element(cm.target, base=HERE, as_css=idx == 1)
+            st.say('Wrote %s' % os.path.relpath(p, HERE))
+        except Exception as e:
+            st.say('Export failed: %s' % e)
+        cm.open = False
+        st.ctx_menu = cm if cm.pop > 0.01 else None
+        self.hud_dirty = True
+
     def _add(self, mx, my):
         st = self.state
         kind = st.tool
@@ -599,6 +784,15 @@ class App:
                 m.hover = h
                 self.hud_dirty = True
 
+        if st.pressing:
+            st.touch = (mx, my)
+        cm = st.ctx_menu
+        if cm is not None:
+            h = cm.item_at(mx, my)
+            if h != cm.hover:
+                cm.hover = h
+                self.hud_dirty = True
+
         if self.active_slider is not None:
             self.active_slider.set_value(mx)
             return
@@ -630,6 +824,7 @@ class App:
         st = self.state
 
         if action == glfw.RELEASE:
+            st.pressing = False
             if self.active_slider is not None:
                 self.active_slider.active = False
                 self.active_slider = None
@@ -644,7 +839,24 @@ class App:
             self.drag_menu = None
             return
 
+        if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.PRESS:
+            self._open_ctx(mx, my)
+            return
+
         if button != glfw.MOUSE_BUTTON_LEFT or action != glfw.PRESS:
+            return
+
+        st.pressing = True
+        st.touch = (mx, my)
+
+        # an open HTMLify menu eats the next click
+        if st.ctx_menu is not None and st.ctx_menu.open:
+            idx = st.ctx_menu.item_at(mx, my)
+            if idx is not None:
+                self._run_ctx(idx)
+            else:
+                st.ctx_menu.open = False
+                self.hud_dirty = True
             return
 
         shift = mods & glfw.MOD_SHIFT
@@ -786,6 +998,8 @@ class App:
             self._delete_selected()
         elif key == glfw.KEY_ESCAPE:
             st.selected = None
+            if st.ctx_menu is not None:
+                st.ctx_menu.open = False
         elif key == glfw.KEY_Q and isinstance(st.selected, Shape):
             st.selected.rot -= 0.06
         elif key == glfw.KEY_E and isinstance(st.selected, Shape):
@@ -813,7 +1027,10 @@ class App:
                 self.hud_dirty = True
             st.step(dt)
 
-            if any(m.pop > 0.001 and m.pop < 0.999 for m in st.menus):
+            popping = [m.pop for m in st.menus]
+            if st.ctx_menu is not None:
+                popping.append(st.ctx_menu.pop)
+            if any(0.001 < p < 0.999 for p in popping):
                 self.hud_dirty = True
             if self.hud_dirty:
                 self.renderer.update_hud(self.hud.render(st.hud_state()))
@@ -835,7 +1052,7 @@ def shot(out_path, size=(1280, 800), image_path=None):
     fbo = ctx.framebuffer(color_attachments=[tex])
     renderer = GlassRenderer(ctx, size)
     renderer.set_background(Image.open(image_path) if image_path
-                            else make_default_background())
+                            else default_background())
     st = State(size)
     demo_scene(st)
     sw = st.switches[1]
