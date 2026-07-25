@@ -34,7 +34,11 @@ import htmlify
 TOOLS = ['select', 'circle', 'rect', 'pill', 'tri', 'switch', 'slider']
 UTILS = ['open', 'save', 'reset', 'trash']
 
-DEFAULTS = {'frost': 0.10, 'bend': 0.50, 'merge': 0.45, 'glass': 0.16}
+# Frost defaults to zero. Liquid Glass is refractive, not frosted — the heavy
+# backdrop blur is the iOS 15-18 look Apple moved away from, and it is what
+# makes a render read as fogged plastic instead of glass. The slider is still
+# there for when you want it.
+DEFAULTS = {'frost': 0.0, 'bend': 0.42, 'merge': 0.34, 'glass': 0.10}
 
 HINTS = {
     'select': 'Select · drag move · wheel round · Shift+wheel size · Q/E rotate',
@@ -428,22 +432,22 @@ class State:
     def content_params(self):
         p = dict(uOpacity=self.val('glass'),
                  uFrost=self.val('frost') * 22.0,
-                 uBend=self.val('bend') * 104.0,
+                 uBend=self.val('bend') * 88.0,
                  uMergeK=4.0 + self.val('merge') * 86.0,
-                 uEdge=17.0, uAniso=1.0, uDisp=1.0,
-                 uShadow=0.34, uShadowR=26.0,
-                 uSpec=0.32, uShine=13.0,
-                 uAdapt=0.78, uSat=0.14, uRimLit=0.30)
+                 uEdge=12.0, uAniso=1.0, uDisp=0.70,
+                 uShadow=0.20, uShadowR=14.0,
+                 uSpec=0.30, uShine=22.0,
+                 uAdapt=0.50, uSat=0.07, uRimLit=0.30)
         p.update(self._light_params())
         return p
 
     def ui_params(self):
-        p = dict(uOpacity=0.16 + 0.26 * self.val('glass'),
-                 uFrost=1.6, uBend=30.0, uMergeK=26.0,
-                 uEdge=9.0, uAniso=0.80, uDisp=1.35,
-                 uShadow=0.30, uShadowR=15.0,
-                 uSpec=0.36, uShine=15.0,
-                 uAdapt=0.72, uSat=0.10, uRimLit=0.34)
+        p = dict(uOpacity=0.10 + 0.18 * self.val('glass'),
+                 uFrost=0.0, uBend=21.0, uMergeK=26.0,
+                 uEdge=7.0, uAniso=0.80, uDisp=0.85,
+                 uShadow=0.18, uShadowR=9.0,
+                 uSpec=0.34, uShine=26.0,
+                 uAdapt=0.48, uSat=0.06, uRimLit=0.34)
         p.update(self._light_params())
         return p
 
@@ -500,18 +504,22 @@ def demo_scene(state):
     def P(fx, fy):
         return fx * W, fy * H
 
+    # Control-scale and discrete, the way Apple's glass actually appears: a
+    # button, a capsule, a card, a mark. Oversized blobs at a low merge
+    # threshold gel into one amoeba and stop reading as an interface.
     state.content = [
-        Shape(KIND_CIRCLE, *P(0.27, 0.33), 84 * r, 84 * r),
-        Shape(KIND_RRECT, *P(0.50, 0.33), 150 * r, 84 * r, rad=84 * r),
-        Shape(KIND_RRECT, *P(0.17, 0.63), 92 * r, 30 * r, rad=30 * r),
-        Shape(KIND_TRI, *P(0.40, 0.62), 56 * r, 56 * r, rad=12 * r),
+        Shape(KIND_CIRCLE, *P(0.24, 0.31), 46 * r, 46 * r),
+        Shape(KIND_RRECT, *P(0.42, 0.31), 74 * r, 34 * r, rad=34 * r),
+        Shape(KIND_RRECT, *P(0.60, 0.31), 58 * r, 58 * r, rad=20 * r),
+        Shape(KIND_TRI, *P(0.30, 0.56), 46 * r, 46 * r, rad=10 * r),
     ]
-    sx, sy = P(0.70, 0.26)
-    state.switches = [Switch(sx, sy, on=True), Switch(sx, H * 0.35, on=False)]
-    demo = Slider(length=0.26 * W, v=0.55, knob=(26 * r, 17 * r))
-    demo.place(*P(0.36, 0.80))
+    sx = 0.72 * W
+    state.switches = [Switch(sx, H * 0.27, on=True),
+                      Switch(sx, H * 0.37, on=False)]
+    demo = Slider(length=0.24 * W, v=0.55, knob=(24 * r, 15 * r))
+    demo.place(*P(0.34, 0.75))
     state.play_sliders = [demo]
-    state.menus = [Menu(*P(0.88, 0.13))]
+    state.menus = [Menu(*P(0.89, 0.13))]
     state.selected = None
 
 

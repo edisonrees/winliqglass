@@ -62,7 +62,9 @@ class Demo:
         self.sw_a, self.sw_b = s.switches[0], s.switches[1]
         self.play = s.play_sliders[0]
         self.menu = s.menus[0]
-        self.frost = next(x for x in s.sliders if x.key == 'frost')
+        # Glass and Bend, not Frost: pushing the frost slider fogs the whole
+        # scene, which is the look this material is meant to be the opposite of
+        self.glass = next(x for x in s.sliders if x.key == 'glass')
         self.bend = next(x for x in s.sliders if x.key == 'bend')
         self.W, self.H = state.size
         self.home = {
@@ -144,22 +146,22 @@ class Demo:
         # 5. push the material sliders — the whole scene answers
         u = seg(t, 9.1, 10.2)
         if u is not None:
-            self.frost.active = True
-            self.frost.v = lerp(0.10, 0.62, u)
-            self.cursor = (self.frost.knob_x(), self.frost.cy)
+            self.glass.active = True
+            self.glass.v = lerp(0.10, 0.34, u)
+            self.cursor = (self.glass.knob_x(), self.glass.cy)
             self.down = True
         u = seg(t, 10.2, 11.0)
         if u is not None:
-            self.frost.active = True
-            self.frost.v = lerp(0.62, 0.14, u)
-            self.cursor = (self.frost.knob_x(), self.frost.cy)
+            self.glass.active = True
+            self.glass.v = lerp(0.34, 0.10, u)
+            self.cursor = (self.glass.knob_x(), self.glass.cy)
             self.down = True
         elif t > 11.0:
-            self.frost.active = False
+            self.glass.active = False
         u = seg(t, 11.0, 11.9)
         if u is not None:
             self.bend.active = True
-            self.bend.v = lerp(0.50, 0.86, u)
+            self.bend.v = lerp(0.42, 0.82, u)
             self.cursor = (self.bend.knob_x(), self.bend.cy)
             self.down = True
         elif t > 11.9:

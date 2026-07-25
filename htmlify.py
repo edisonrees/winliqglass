@@ -33,14 +33,14 @@ from engine import (Shape, KIND_CIRCLE, KIND_RRECT, KIND_TRI, KIND_RING,
 EXPORT_DIR = 'export'
 
 # Tuned against the shader's own defaults so the two renderings agree.
-GLASS_VARS = """  --lg-blur: 7px;
-  --lg-saturate: 165%;
-  --lg-tint: rgba(255, 255, 255, 0.14);
-  --lg-rim: rgba(255, 255, 255, 0.60);
-  --lg-rim-fill: rgba(255, 255, 255, 0.26);
-  --lg-glow: rgba(255, 255, 255, 0.13);
-  --lg-shadow: 0 10px 28px rgba(0, 0, 0, 0.20);
-  --lg-fringe: 0.55;"""
+GLASS_VARS = """  --lg-blur: 2px;
+  --lg-saturate: 128%;
+  --lg-tint: rgba(255, 255, 255, 0.07);
+  --lg-rim: rgba(255, 255, 255, 0.72);
+  --lg-rim-fill: rgba(255, 255, 255, 0.20);
+  --lg-glow: rgba(255, 255, 255, 0.05);
+  --lg-shadow: 0 4px 12px rgba(0, 0, 0, 0.16);
+  --lg-fringe: 0.28;"""
 
 BASE_CSS = """.lg {
   position: absolute;
@@ -51,7 +51,7 @@ BASE_CSS = """.lg {
   box-shadow: var(--lg-shadow),
               inset 0 1px 0 var(--lg-rim),
               inset 0 -1px 0 var(--lg-rim-fill),
-              inset 0 0 20px var(--lg-glow);
+              inset 0 0 10px var(--lg-glow);
   isolation: isolate;
 }
 
@@ -62,10 +62,10 @@ BASE_CSS = """.lg {
   inset: 0;
   border-radius: inherit;
   background: linear-gradient(145deg,
-      rgba(255, 255, 255, 0.50) 0%,
-      rgba(255, 255, 255, 0.00) 30%,
-      rgba(255, 255, 255, 0.00) 70%,
-      rgba(255, 255, 255, 0.24) 100%);
+      rgba(255, 255, 255, 0.30) 0%,
+      rgba(255, 255, 255, 0.00) 18%,
+      rgba(255, 255, 255, 0.00) 82%,
+      rgba(255, 255, 255, 0.14) 100%);
   mix-blend-mode: screen;
   pointer-events: none;
 }
@@ -264,16 +264,20 @@ def _parts(obj):
                  ['background: rgba(255, 255, 255, 0.20);'], True)]
 
     if isinstance(obj, Menu):
-        px, py, pw, ph = obj.panel_rect()
         btn = {'left': obj.x - obj.R, 'top': obj.y - obj.R,
                'width': obj.R * 2, 'height': obj.R * 2,
                'radius': '50%', 'clip': None, 'rotate': 0.0}
-        panel = {'left': px, 'top': py, 'width': pw, 'height': ph,
-                 'radius': '20px', 'clip': None, 'rotate': 0.0}
-        return [('menu-button', btn,
-                 ['background: rgba(255, 255, 255, 0.16);'], True),
-                ('menu-panel', panel,
-                 ['background: rgba(255, 255, 255, 0.22);'], True)]
+        out = [('menu-button', btn,
+                ['background: rgba(255, 255, 255, 0.16);'], True)]
+        # the panel only exists while the menu is open; exporting it
+        # unconditionally drops a stray card into the page
+        if obj.open or obj.pop > 0.01:
+            px, py, pw, ph = obj.panel_rect()
+            out.append(('menu-panel',
+                        {'left': px, 'top': py, 'width': pw, 'height': ph,
+                         'radius': '20px', 'clip': None, 'rotate': 0.0},
+                        ['background: rgba(255, 255, 255, 0.22);'], True))
+        return out
 
     return []
 

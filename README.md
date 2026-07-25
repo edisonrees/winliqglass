@@ -27,13 +27,18 @@ py record.py demo.mp4 --dark    # dark Golden Gate
 
 What the fragment shader does per pixel, and why:
 
+**Refractive, not frosted.** Frost defaults to zero. Heavy backdrop blur is the
+iOS 15-18 look Apple moved away from, and it is what makes a render read as
+fogged plastic rather than glass. The rim does the work: a hairline highlight,
+a narrow bevel, a clear interior.
+
 | Effect | How |
 | --- | --- |
-| Lensing | Circular thickness profile over the SDF band; the rim bends light outward hard enough that distant background folds into visible compression rings. |
-| Spectral edge | Eight wavelength taps recombined through a narrow RGB response. The chromatic part of the residual is amplified on its own, so the fringe saturates without putting luminance ringing on high-contrast edges. |
-| Specular | Key light above-left, fill below-right, gated to the bevel — a flat top facing the viewer would otherwise wash the whole interior with constant sheen. |
+| Lensing | Circular thickness profile over a narrow SDF band; the rim bends light outward hard enough that distant background folds into visible compression rings, while the interior stays essentially clear. |
+| Spectral edge | Eight wavelength taps recombined through a narrow RGB response. The chromatic part of the residual is amplified on its own, so the fringe saturates without putting luminance ringing on high-contrast edges. Gain is kept low — enough to notice when magnified, not enough to read as broken chromatic aberration. |
+| Specular | Key light above-left, fill below-right, gated to the outer bevel — a flat top facing the viewer would otherwise wash the whole interior with constant sheen, and spreading the highlight inward reads as haze. |
 | Adaptive tint | A wide mip of the wall behind sets the body polarity: near-black over dark content, near-white over light, so overlaid glyphs keep contrast on any wallpaper. |
-| Adaptive shadow | Wide, soft, offset down, and scaled by background luminance — clear over light content, nearly gone over dark. |
+| Adaptive shadow | Tight, soft, offset down, and scaled by background luminance — visible over light content, nearly gone over dark. |
 | Fresnel + hairline | Edge reflectivity rises at grazing angles; a bright hairline traces the silhouette, brightest where it faces the key light. |
 | Touch light | Pressing illuminates the glass from the pointer outward. |
 

@@ -205,8 +205,10 @@ void main(){
     off.x *= uAniso;
     vec2 offUV = vec2(off.x, -off.y) / uRes;
 
-    // slight lod keeps the heavily-compressed rim from aliasing
-    float aaLod = clamp(log2(1.0 + prof * uBend * 0.10), 0.0, 2.5);
+    // Just enough lod to stop the compressed rim aliasing. This has to stay
+    // small: at 0.10/2.5 it put the rim band on mip 2.5, which blurred the
+    // silhouette into a halo — the single biggest source of haze.
+    float aaLod = clamp(log2(1.0 + prof * uBend * 0.025), 0.0, 1.1);
 
     // ---- spectral refraction --------------------------------------------
     // Dispersion is an edge phenomenon: it tracks the lens profile, so the
@@ -234,7 +236,10 @@ void main(){
         // the whole residual would put on high-contrast edges.
         vec3 dres = (acc / wsum) - plain;
         float dl = dot(dres, vec3(0.33333));
-        refr = clamp(plain + vec3(dl) + (dres - vec3(dl)) * (1.0 + 3.4 * uDisp),
+        // Gain stays modest. It was raised to punch through the old haze;
+        // against a crisp hairline the same value reads as broken chromatic
+        // aberration rather than the fringe you only notice when magnified.
+        refr = clamp(plain + vec3(dl) + (dres - vec3(dl)) * (1.0 + 1.5 * uDisp),
                      0.0, 1.0);
     }
 
@@ -269,26 +274,27 @@ void main(){
     vec3 K = normalize(uKey);
     vec3 F = normalize(uFill);
 
-    // Only the rolled edge reflects. A flat top facing the viewer would
-    // otherwise return a near-1 half-vector dot and wash the whole interior
-    // with a constant sheen, which is exactly what Apple's material does not
-    // do — its highlights live on the bevel.
-    float bevel = smoothstep(0.02, 0.40, prof);
+    // Only the rolled edge reflects, and only its outer part. A flat top
+    // facing the viewer returns a near-1 half-vector dot and washes the whole
+    // interior; spreading the highlight inward across the bevel reads as haze
+    // rather than glass. Apple's sit right on the silhouette.
+    float bevel = smoothstep(0.14, 0.72, prof);
     float sKey  = pow(max(dot(normalize(K + V), N), 0.0), uShine) * bevel;
     float sFill = pow(max(dot(normalize(F + V), N), 0.0), uShine * 0.65) * bevel;
-    float fres  = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 5.0);
+    float fres  = pow(1.0 - clamp(dot(N, V), 0.0, 1.0), 6.0);
 
     // over dark content the highlights have to work harder to read
-    float lift = mix(1.30, 0.80, smoothstep(0.12, 0.62, amb));
-    float spec = (sKey + 0.40 * sFill) * uSpec * lift;
+    float lift = mix(1.25, 0.85, smoothstep(0.12, 0.62, amb));
+    float spec = (sKey + 0.38 * sFill) * uSpec * lift;
 
     // compression shading near the rim defines the edge — no painted ring
-    glass *= 1.0 - 0.13 * pow(rim, 3.0);
-    glass += vec3(spec) + vec3(fres * 0.07 * uSpec * lift);
+    glass *= 1.0 - 0.06 * pow(rim, 5.0);
+    glass += vec3(spec) + vec3(fres * 0.04 * uSpec * lift);
 
-    // bright hairline tracing the silhouette, brightest where it faces a light
-    float line = exp(-pow((d + 1.35) / 0.95, 2.0));
-    float facing = 0.30 + 0.70 * max(dot(n, normalize(K.xy)), 0.0);
+    // A hairline, not a halo: roughly one pixel either side of the
+    // silhouette, brightest where it faces the key light.
+    float line = exp(-pow((d + 0.85) / 0.60, 2.0));
+    float facing = 0.34 + 0.66 * max(dot(n, normalize(K.xy)), 0.0);
     glass += vec3(line * uRimLit * facing * lift);
 
     // per-shape rim override (selection ring, contour hints)
