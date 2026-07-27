@@ -112,6 +112,7 @@ Clip-path shapes (triangle, pentagon) export as flat translucent fills:
 | `shaders.py` | GLSL for fields and lens shading |
 | `hud.py` | Pillow icons, labels, cursor |
 | `htmlify.py` | HTML/CSS export |
+| `public_render_part/` | standalone HTML/CSS/JS render-part generator |
 | `record.py` | scripted demo recorder to MP4 |
 | `scene.json` | last saved layout |
 
