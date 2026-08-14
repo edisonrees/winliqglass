@@ -9,14 +9,46 @@ static inline fx sd_circle(fx px, fx py, fx r) {
     return fxhypot(px, py) - r;
 }
 
+// Rounded rect, with the same continuous-curvature corner the desktop shader
+// draws (sdRRect in ../../shaders.py). Only the corner quadrant changes: on a
+// flat, one of mx/my is zero, and every p-norm of a single component is that
+// component, so the straights and the interior are untouched.
 static inline fx sd_rrect(fx px, fx py, fx bx, fx by, fx r) {
     if (r > bx) r = bx;
     if (r > by) r = by;
     fx qx = fxabs(px) - bx + r;
     fx qy = fxabs(py) - by + r;
-    fx outside = fxhypot(fxmax(qx, 0), fxmax(qy, 0));
-    fx inside = fxmin(fxmax(qx, qy), 0);
-    return outside + inside - r;
+    fx mx = fxmax(qx, 0), my = fxmax(qy, 0);
+    fx d = fxhypot(mx, my) + fxmin(fxmax(qx, qy), 0) - r;
+
+#if LG_SQUIRCLE
+    // Squaring in Q16.16 overflows past ~181px. Cap well below that: the
+    // corner shape is only visible within a radius or so of the arc centre,
+    // and out there the circular answer is already right to the eye.
+    const fx CAP = FX(150.0);
+    if (mx > 0 && my > 0 && mx < CAP && my < CAP) {
+        // Capsule and circle caps really are semicircular, so fade the
+        // treatment out as the radius reaches the short half-axis.
+        fx sq = FX_ONE - fxsmoothstep(FX(0.72), FX(0.99),
+                                      fxd(r, fxmax(fxmin(bx, by), 1)));
+        if (sq > FX(0.004)) {
+            // |m|4 = sqrt(hypot(mx^2, my^2)) -- the 4-norm without ever
+            // forming a 4th power.
+            fx l4 = fxsqrt(fxhypot(fxm(mx, mx), fxm(my, my)));
+            if (l4 > 0) {
+                // A p-norm is not unit-gradient off-axis, which would read as
+                // a bevel up to 19% wider on the corner diagonal. Normalising
+                // by |grad| fixes it, and on the unit contour u^4+v^4 = 1 the
+                // 6th powers stay inside [0,1] -- no overflow, no clamping.
+                fx u = fxd(mx, l4), v = fxd(my, l4);
+                fx u3 = fxm(fxm(u, u), u), v3 = fxm(fxm(v, v), v);
+                fx gm = fxhypot(u3, v3);       // in [0.841, 1]
+                if (gm > 0) d = fxlerp(d, fxd(l4 - r, gm), sq);
+            }
+        }
+    }
+#endif
+    return d;
 }
 
 static inline fx sd_tri(fx px, fx py, fx s) {

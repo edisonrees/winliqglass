@@ -35,6 +35,7 @@ a narrow bevel, a clear interior.
 | Effect | How |
 | --- | --- |
 | Lensing | Circular thickness profile over a narrow SDF band; the rim bends light outward hard enough that distant background folds into visible compression rings, while the interior stays essentially clear. |
+| Continuous corners | Rounded rects are superellipses, not circular arcs — curvature ramps up out of the straight edge instead of stepping from 0 to 1/r at a tangent point. Glass shows that step twice, in the outline and again in the bevel normal. Capsules and circles keep true semicircular caps. |
 | Spectral edge | Eight wavelength taps recombined through a narrow RGB response. The chromatic part of the residual is amplified on its own, so the fringe saturates without putting luminance ringing on high-contrast edges. Gain is kept low — enough to notice when magnified, not enough to read as broken chromatic aberration. |
 | Specular | Key light above-left, fill below-right, gated to the outer bevel — a flat top facing the viewer would otherwise wash the whole interior with constant sheen, and spreading the highlight inward reads as haze. |
 | Adaptive tint | A wide mip of the wall behind sets the body polarity: near-black over dark content, near-white over light, so overlaid glyphs keep contrast on any wallpaper. |
@@ -82,6 +83,9 @@ run the fragment shader:
   same SDF the shader uses. It is emitted per element and wired up, but
   `backdrop-filter: url(#id)` is Chromium-only today, so the export degrades to
   the blur alone elsewhere;
+* corners — `corner-shape: squircle`, which is a superellipse of exponent 4,
+  the same curve the shader draws. Browsers without it drop the line and keep
+  the circular `border-radius`;
 * fringe — a masked conic-gradient ring standing in for spectral separation;
 * specular — a 145° gradient sweep in `screen`, matching the shader's key/fill
   pair;

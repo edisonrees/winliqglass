@@ -25,6 +25,22 @@ KIND_CIRCLE, KIND_RRECT, KIND_TRI, KIND_RING, KIND_PENT = 0, 1, 2, 3, 4
 _PK = (0.809016994, 0.587785252, 0.726542528)   # pentagon constants (iq)
 
 
+def _smoothstep(a, b, x):
+    t = min(max((x - a) / (b - a), 0.0), 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
+def squircle_amount(hw, hh, rad):
+    """How continuous-curvature a box's corners are: 1 = superellipse, 0 = arc.
+
+    Mirrors `squircleAmt` in shaders.py. Only partial-radius corners qualify —
+    once the radius reaches the short half-axis the shape is a capsule or a
+    circle, whose caps really are semicircular.
+    """
+    r = min(rad, hw, hh)
+    return 1.0 - _smoothstep(0.72, 0.99, r / max(min(hw, hh), 1e-4))
+
+
 @dataclass
 class Shape:
     kind: int = KIND_CIRCLE
@@ -47,9 +63,20 @@ class Shape:
         if self.kind == KIND_CIRCLE:
             return math.hypot(px, py) - hw
         if self.kind == KIND_RRECT:
+            # Mirrors sdRRect in shaders.py, continuous corner included, so a
+            # click on a card's corner agrees with the pixels drawn there.
             r = min(rad, hw, hh)
             qx, qy = abs(px) - hw + r, abs(py) - hh + r
-            return math.hypot(max(qx, 0.0), max(qy, 0.0)) + min(max(qx, qy), 0.0) - r
+            mx, my = max(qx, 0.0), max(qy, 0.0)
+            d = math.hypot(mx, my) + min(max(qx, qy), 0.0) - r
+            sq = squircle_amount(hw, hh, rad)
+            if sq > 0.001 and mx > 0.0 and my > 0.0:
+                mx2, my2 = mx * mx, my * my
+                s = mx2 * mx2 + my2 * my2
+                l4 = math.sqrt(math.sqrt(s))
+                g = math.sqrt(mx2 ** 3 + my2 ** 3)
+                d += sq * ((l4 - r) * s / max(l4 * g, 1e-6) - d)
+            return d
         if self.kind == KIND_TRI:
             k = 1.7320508
             sz = hw * 0.82

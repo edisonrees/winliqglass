@@ -37,6 +37,11 @@ The sketch does not own your pins. Pick a driver at the top of
 | `LG_DRIVER_ADAFRUIT` | the `Adafruit_ST7789(...)` constructor in the sketch |
 | `LG_DRIVER_NONE` | nothing — renders and reports fps over serial |
 
+`lg_config.h` carries the rest of the build switches: `LG_TIER` overrides the
+MCU detection, `LG_CENTRAL_DIFF` trades two field evaluations for an unbiased
+normal, and `LG_SQUIRCLE` picks continuous-curvature corners over circular
+arcs.
+
 Frames are produced `LG_STRIPE_H` rows at a time and handed to a callback, so
 peak RAM is `width × LG_STRIPE_H × 2` bytes whatever the panel's height. Any
 `Adafruit_GFX` panel works; anything with an FPU will be pleasant.
@@ -104,7 +109,15 @@ reproducing something the desktop build turns off.
 
 Everything else is a line-for-line port: the smooth-min SDF field, the circular
 bevel profile, the two-light specular gated to the outer bevel, the adaptive
-tint, the Fresnel term, the hairline.
+tint, the Fresnel term, the hairline, and the continuous-curvature corner.
+
+That last one is the only place the fixed point needed thinking about. The
+corner is a 4-norm, and a Q16.16 fourth power overflows at 13 pixels — but
+`|m|4` is `sqrt(hypot(mx², my²))`, which never forms one. The gradient
+correction that keeps the bevel from widening on the corner diagonal is done
+on the unit contour, where `u⁴+v⁴ = 1` puts every intermediate inside [0,1].
+Against the desktop shader's float maths the port tracks to 0.012 px worst
+case. `LG_SQUIRCLE` turns it off; tier 0 opts out and draws arcs.
 
 ## Arithmetic
 

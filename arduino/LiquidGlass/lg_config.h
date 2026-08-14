@@ -121,4 +121,18 @@
   #define LG_CENTRAL_DIFF 1
 #endif
 
+// Continuous-curvature ("squircle") corners on rounded rects, matching the
+// desktop shader. Costs two integer square roots and two divides, but only
+// in the corner quadrant of a rounded rect — a small share of the pixels the
+// field is asked about, and nothing at all for circles, pills and rings.
+// Tier 0 pays that on a 16MHz AVR synthesising 64-bit multiplies, so it opts
+// out and draws circular arcs.
+#ifndef LG_SQUIRCLE
+  #if LG_TIER >= 1
+    #define LG_SQUIRCLE 1
+  #else
+    #define LG_SQUIRCLE 0
+  #endif
+#endif
+
 #endif // LG_CONFIG_H

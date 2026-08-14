@@ -29,7 +29,7 @@ import os
 from PIL import Image
 
 from engine import (Shape, KIND_CIRCLE, KIND_RRECT, KIND_TRI, KIND_RING,
-                    KIND_PENT)
+                    KIND_PENT, squircle_amount)
 
 EXPORT_DIR = 'export'
 
@@ -157,11 +157,15 @@ def shape_geometry(s):
     """CSS box + radius/clip for one Shape."""
     w, h = s.hw * 2.0, s.hh * 2.0
     g = {'left': s.x - s.hw, 'top': s.y - s.hh, 'width': w, 'height': h,
-         'radius': None, 'clip': None, 'rotate': s.rot}
+         'radius': None, 'clip': None, 'rotate': s.rot, 'squircle': False}
     if s.kind == KIND_CIRCLE:
         g['radius'] = '50%'
     elif s.kind == KIND_RRECT:
         g['radius'] = '%gpx' % min(s.rad, s.hw, s.hh)
+        # CSS `corner-shape: squircle` is a superellipse of exponent 4 — the
+        # same curve sdRRect draws. Browsers without it drop the declaration
+        # and keep the circular border-radius, which is the old look.
+        g['squircle'] = squircle_amount(s.hw, s.hh, s.rad) > 0.5
     elif s.kind == KIND_TRI:
         g['clip'] = 'polygon(50% 4%, 96% 92%, 4% 92%)'
     elif s.kind == KIND_PENT:
@@ -185,6 +189,8 @@ def _decl(g, extra=()):
            'height: %gpx;' % round(g['height'], 1)]
     if g['radius']:
         out.append('border-radius: %s;' % g['radius'])
+    if g.get('squircle'):
+        out.append('corner-shape: squircle;')
     if g['clip']:
         out.append('clip-path: %s;' % g['clip'])
     if abs(g['rotate']) > 1e-4:

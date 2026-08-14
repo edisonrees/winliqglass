@@ -1046,8 +1046,28 @@ class App:
 
 # ------------------------------------------------------------ headless shot
 
+def _standalone_context():
+    """A GL context with no window.
+
+    moderngl's standalone path goes through X11 by default, so `--shot` died
+    on a machine with no display — exactly where a headless screenshot is
+    worth having. Try EGL and OSMesa behind it, so this works over SSH and in
+    containers; both land on Mesa's software rasteriser when there is no GPU,
+    which is slow but pixel-correct.
+    """
+    err = None
+    for backend in (None, 'egl', 'osmesa'):
+        kw = {'backend': backend} if backend else {}
+        try:
+            return moderngl.create_context(standalone=True, require=330, **kw)
+        except Exception as exc:                      # no display, no driver
+            err = exc
+    raise RuntimeError('no usable OpenGL context (tried x11, egl, osmesa): '
+                       f'{err}')
+
+
 def shot(out_path, size=(1280, 800), image_path=None):
-    ctx = moderngl.create_context(standalone=True)
+    ctx = _standalone_context()
     tex = ctx.texture(size, 3)
     fbo = ctx.framebuffer(color_attachments=[tex])
     renderer = GlassRenderer(ctx, size)
