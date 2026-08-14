@@ -21,7 +21,15 @@ py app.py photo.jpg             # your own background
 py app.py --shot out.png
 py record.py demo.mp4           # scripted demo, straight to MP4
 py record.py demo.mp4 --dark    # dark Golden Gate
+py shots.py clip.mp4            # looping material clip, no chrome
+py shots.py shots/ --all        # one clip per wallpaper
+py shots.py clip.mp4 --detail   # corner close-up, light laps it once
 ```
+
+`record.py` drives the studio through a scripted session, widgets and HUD and
+all. `shots.py` is the other thing worth looking at: the material on its own —
+a superellipse card, a button and a slider moving over a desktop picture, so
+the lens always has something changing to bend. Both run headless.
 
 ## The material
 
@@ -118,6 +126,7 @@ Clip-path shapes (triangle, pentagon) export as flat translucent fills:
 | `hud.py` | Pillow icons, labels, cursor |
 | `htmlify.py` | HTML/CSS export |
 | `record.py` | scripted demo recorder to MP4 |
+| `shots.py` | looping material clips over the wallpapers |
 | `scene.json` | last saved layout |
 | `arduino/` | the same material on a microcontroller |
 
