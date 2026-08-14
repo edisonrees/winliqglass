@@ -114,6 +114,24 @@ Clip-path shapes (triangle, pentagon) export as flat translucent fills:
 | `htmlify.py` | HTML/CSS export |
 | `record.py` | scripted demo recorder to MP4 |
 | `scene.json` | last saved layout |
+| `arduino/` | the same material on a microcontroller |
+
+## Arduino
+
+`arduino/` is a port of the lens to a board with no GPU: Q16.16 fixed point
+throughout, a stripe renderer that never holds a whole frame, and a background
+that is a function rather than a texture — which collapses the two-pass
+renderer to one, since a refracted sample is just another call.
+
+The spectral fringe is the interesting difference. Eight wavelength taps per
+pixel is out of reach, so dispersion is turned inside out and traced instead:
+a filleted glass edge is a light pipe, light couples in at the rim, totally
+internally reflects, and runs around the outline, fanning into colour as each
+bend separates the wavelengths. Cost stops scaling with resolution and starts
+scaling with how many rays you ask for.
+
+`arduino/host/` builds the identical sources on a desktop and writes PNGs, so
+the material can be tuned without a reflash. See `arduino/README.md`.
 
 ## Wallpapers
 
