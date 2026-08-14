@@ -9,12 +9,14 @@ magnified captures of an iOS 26 lock screen:
 * dispersion is spectral, not an R/B split. Sampling eight wavelengths across
   the visible band and recombining them gives the orange -> green -> cyan ->
   magenta run seen hugging high-curvature corners, and it fades to nothing in
-  the flat interior;
+  the flat interior. The fan also widens with distance travelled around the
+  rim, because a filleted edge is a light pipe and every bend separates the
+  wavelengths further — the same model the Arduino port traces explicitly;
 * corners are continuous-curvature, not circular arcs. A compass corner steps
   curvature from zero to 1/r at the tangent point; on glass that shows twice
-  over, once in the outline and again in the bevel normal, which pins a bright
-  dot where the arc starts. Capsules and circles are left alone — their caps
-  really are semicircular;
+  over, once in the outline and again in the bevel normal, which concentrates
+  the specular transition about twice as sharply. Capsules and circles are
+  left alone — their caps really are semicircular;
 * two lights (key above-left, fill below-right) produce the double specular
   arc and the bright hairline that traces every silhouette;
 * the body tint is adaptive: it takes the polarity of whatever is behind it,
@@ -51,6 +53,7 @@ uniform float uBend;     // refraction depth, px
 uniform float uEdge;     // lens band width, px
 uniform float uAniso;    // horizontal bend damping (1 = isotropic)
 uniform float uDisp;     // chromatic dispersion multiplier (1 = default)
+uniform float uTravel;   // spectral fan widening around the rim (0 = uniform)
 uniform float uShadow;   // drop shadow strength
 uniform float uShadowR;  // drop shadow softness, px
 uniform float uSpec;     // specular strength
@@ -98,10 +101,11 @@ float squircleAmt(vec2 b, float r){
 // Rounded rect whose corners run from a circular arc (sq=0) to a
 // superellipse quadrant (sq=1) — the standard approximation to the corner
 // SwiftUI calls `.continuous`. A compass corner steps its curvature from 0
-// to 1/r at the tangent point; the eye reads that discontinuity, and on
-// glass it is worse than on a flat fill because the bevel normal turns a
-// corner at the same place and pins a bright dot there. The superellipse
-// ramps curvature up out of the straight edge instead.
+// to 1/r at the tangent point, and on glass that shows up twice: in the
+// outline, and again in the bevel normal, which turns the same corner in
+// the same place. Sweeping the specular around a 60px corner, the arc's
+// sharpest slope change measures 1.8x the superellipse's, and it starts
+// climbing the instant the flat ends rather than easing out of it.
 //
 // Only the corner quadrant changes. On a flat one component of max(q,0) is
 // zero, and every p-norm of a single component *is* that component, so the
@@ -269,6 +273,22 @@ void main(){
     // keyed to `prof` the coloured band is barely three pixels wide.
     float dispW = pow(smoothstep(0.20, 0.98, rim), 1.15);
     float spread = 1.25 * uDisp * dispW * clamp(uBend / 60.0, 0.0, 1.6);
+
+    // A filleted edge is a light pipe. Light coupling in near the silhouette
+    // hits the far wall past the critical angle, totally internally reflects,
+    // and runs around the outline — and because the index is wavelength
+    // dependent, every bend separates the colours a little further. So the
+    // fan is tightest where the rim faces the source and widest on the far
+    // side, which is why a real glass edge grades through the spectrum as it
+    // travels rather than showing one fringe width the whole way round.
+    // The normal direction stands in for how far the light has run.
+    float couple = dot(n, normalize(uKey.xy + vec2(1e-6)));
+    spread *= 1.0 + uTravel * (0.5 - 0.5 * couple);
+    // Hard cap. The per-tap scale is 1 + (0.5 - t) * spread, so past about
+    // 2.29 the longest wavelength flips sign and refracts inward — a fold
+    // across the rim rather than a fringe along it. Bend at full travel on
+    // the far side otherwise reaches 2.38.
+    spread = min(spread, 2.0);
     vec3 plain = textureLod(uBg, bgUV(vUV + offUV), aaLod).rgb;
     vec3 refr = plain;
     if (spread > 0.004){

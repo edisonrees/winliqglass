@@ -434,7 +434,7 @@ class State:
                  uFrost=self.val('frost') * 22.0,
                  uBend=self.val('bend') * 88.0,
                  uMergeK=4.0 + self.val('merge') * 86.0,
-                 uEdge=12.0, uAniso=1.0, uDisp=0.70,
+                 uEdge=12.0, uAniso=1.0, uDisp=0.70, uTravel=0.85,
                  # no drop shadow: the rim hairline carries the separation
                  uShadow=0.0, uShadowR=14.0,
                  uSpec=0.30, uShine=22.0,
@@ -445,7 +445,7 @@ class State:
     def ui_params(self):
         p = dict(uOpacity=0.10 + 0.18 * self.val('glass'),
                  uFrost=0.0, uBend=21.0, uMergeK=26.0,
-                 uEdge=7.0, uAniso=0.80, uDisp=0.85,
+                 uEdge=7.0, uAniso=0.80, uDisp=0.85, uTravel=0.85,
                  uShadow=0.0, uShadowR=9.0,
                  uSpec=0.34, uShine=26.0,
                  uAdapt=0.48, uSat=0.06, uRimLit=0.34)
