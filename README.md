@@ -21,7 +21,15 @@ py app.py photo.jpg             # your own background
 py app.py --shot out.png
 py record.py demo.mp4           # scripted demo, straight to MP4
 py record.py demo.mp4 --dark    # dark Golden Gate
+py shots.py clip.mp4            # looping material clip, no chrome
+py shots.py shots/ --all        # one clip per wallpaper
+py shots.py clip.mp4 --detail   # corner close-up, light laps it once
 ```
+
+`record.py` drives the studio through a scripted session, widgets and HUD and
+all. `shots.py` is the other thing worth looking at: the material on its own —
+a superellipse card, a button and a slider moving over a desktop picture, so
+the lens always has something changing to bend. Both run headless.
 
 ## The material
 
@@ -35,7 +43,9 @@ a narrow bevel, a clear interior.
 | Effect | How |
 | --- | --- |
 | Lensing | Circular thickness profile over a narrow SDF band; the rim bends light outward hard enough that distant background folds into visible compression rings, while the interior stays essentially clear. |
+| Continuous corners | Rounded rects are superellipses, not circular arcs — curvature ramps up out of the straight edge instead of stepping from 0 to 1/r at a tangent point. Glass shows that step twice, in the outline and again in the bevel normal: swept around a 60px corner, an arc's sharpest specular slope change measures 1.8x a superellipse's. Capsules and circles keep true semicircular caps. |
 | Spectral edge | Eight wavelength taps recombined through a narrow RGB response. The chromatic part of the residual is amplified on its own, so the fringe saturates without putting luminance ringing on high-contrast edges. Gain is kept low — enough to notice when magnified, not enough to read as broken chromatic aberration. |
+| Light-pipe fan | A filleted edge traps light: it couples in near the silhouette, totally internally reflects, and runs around the outline, and every bend separates the wavelengths further. So the fan is tightest where the rim faces the source and widens with distance travelled — measured 1.85x on the far side. One fringe width the whole way round is the thing that reads as painted on. `uTravel` scales it; 0 is the old uniform behaviour. |
 | Specular | Key light above-left, fill below-right, gated to the outer bevel — a flat top facing the viewer would otherwise wash the whole interior with constant sheen, and spreading the highlight inward reads as haze. |
 | Adaptive tint | A wide mip of the wall behind sets the body polarity: near-black over dark content, near-white over light, so overlaid glyphs keep contrast on any wallpaper. |
 | Shadow | Off. The rim hairline carries the separation on its own. `uShadow` still exists — an adaptive drop shadow scaled by background luminance — if you want it back. |
@@ -82,6 +92,9 @@ run the fragment shader:
   same SDF the shader uses. It is emitted per element and wired up, but
   `backdrop-filter: url(#id)` is Chromium-only today, so the export degrades to
   the blur alone elsewhere;
+* corners — `corner-shape: squircle`, which is a superellipse of exponent 4,
+  the same curve the shader draws. Browsers without it drop the line and keep
+  the circular `border-radius`;
 * fringe — a masked conic-gradient ring standing in for spectral separation;
 * specular — a 145° gradient sweep in `screen`, matching the shader's key/fill
   pair;
@@ -113,7 +126,26 @@ Clip-path shapes (triangle, pentagon) export as flat translucent fills:
 | `hud.py` | Pillow icons, labels, cursor |
 | `htmlify.py` | HTML/CSS export |
 | `record.py` | scripted demo recorder to MP4 |
+| `shots.py` | looping material clips over the wallpapers |
 | `scene.json` | last saved layout |
+| `arduino/` | the same material on a microcontroller |
+
+## Arduino
+
+`arduino/` is a port of the lens to a board with no GPU: Q16.16 fixed point
+throughout, a stripe renderer that never holds a whole frame, and a background
+that is a function rather than a texture — which collapses the two-pass
+renderer to one, since a refracted sample is just another call.
+
+The spectral fringe is the interesting difference. Eight wavelength taps per
+pixel is out of reach, so dispersion is turned inside out and traced instead:
+a filleted glass edge is a light pipe, light couples in at the rim, totally
+internally reflects, and runs around the outline, fanning into colour as each
+bend separates the wavelengths. Cost stops scaling with resolution and starts
+scaling with how many rays you ask for.
+
+`arduino/host/` builds the identical sources on a desktop and writes PNGs, so
+the material can be tuned without a reflash. See `arduino/README.md`.
 
 ## Wallpapers
 

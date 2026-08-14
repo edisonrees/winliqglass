@@ -14,12 +14,11 @@ import os
 import subprocess
 import sys
 
-import moderngl
 from PIL import Image
 
 import htmlify
-from app import (CTX_ITEMS, ContextMenu, HERE, State, default_background,
-                 demo_scene)
+from app import (CTX_ITEMS, ContextMenu, HERE, State, _standalone_context,
+                 default_background, demo_scene)
 from engine import GlassRenderer
 from hud import HUD
 
@@ -227,7 +226,7 @@ def open_encoder(path, size, fps):
 # ------------------------------------------------------------ main
 
 def record(out, size=(1440, 900), fps=30, dark=False, seconds=None):
-    ctx = moderngl.create_context(standalone=True)
+    ctx = _standalone_context()
     tex = ctx.texture(size, 3)
     fbo = ctx.framebuffer(color_attachments=[tex])
     renderer = GlassRenderer(ctx, size)

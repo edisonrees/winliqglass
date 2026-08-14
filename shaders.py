@@ -6,10 +6,17 @@ magnified captures of an iOS 26 lock screen:
 * the rim is a *bevel* — a circular thickness profile that bends background
   light outward, hard enough near the boundary that distant background folds
   into visible compression rings;
-* dispersion is spectral, not an R/B split. Sampling six wavelengths across
+* dispersion is spectral, not an R/B split. Sampling eight wavelengths across
   the visible band and recombining them gives the orange -> green -> cyan ->
   magenta run seen hugging high-curvature corners, and it fades to nothing in
-  the flat interior;
+  the flat interior. The fan also widens with distance travelled around the
+  rim, because a filleted edge is a light pipe and every bend separates the
+  wavelengths further — the same model the Arduino port traces explicitly;
+* corners are continuous-curvature, not circular arcs. A compass corner steps
+  curvature from zero to 1/r at the tangent point; on glass that shows twice
+  over, once in the outline and again in the bevel normal, which concentrates
+  the specular transition about twice as sharply. Capsules and circles are
+  left alone — their caps really are semicircular;
 * two lights (key above-left, fill below-right) produce the double specular
   arc and the bright hairline that traces every silhouette;
 * the body tint is adaptive: it takes the polarity of whatever is behind it,
@@ -46,6 +53,7 @@ uniform float uBend;     // refraction depth, px
 uniform float uEdge;     // lens band width, px
 uniform float uAniso;    // horizontal bend damping (1 = isotropic)
 uniform float uDisp;     // chromatic dispersion multiplier (1 = default)
+uniform float uTravel;   // spectral fan widening around the rim (0 = uniform)
 uniform float uShadow;   // drop shadow strength
 uniform float uShadowR;  // drop shadow softness, px
 uniform float uSpec;     // specular strength
@@ -71,12 +79,56 @@ uniform float uRimB[MAXS];
 in vec2 vUV;
 out vec4 fragColor;
 
+// Corner curvature. 1.0 = Apple's continuous corner, 0.0 = a circular arc.
+// Compile-time because it is a statement about the shape language, not a
+// per-frame parameter; flip it to 0.0 to A/B the two.
+#define SQUIRCLE 1.0
+
 float sdCircle(vec2 p, float r){ return length(p) - r; }
 
-float sdRRect(vec2 p, vec2 b, float r){
+// How squircular a given box wants to be.
+//
+// Only *partial*-radius corners get continuous curvature. When the radius
+// reaches the short half-axis the shape is a capsule or a circle, and those
+// caps really are semicircular — SwiftUI keeps `Capsule` separate from
+// `RoundedRectangle(style: .continuous)` for exactly this reason. Squaring
+// off a switch track or a slider knob would be wrong, so fade it out.
+float squircleAmt(vec2 b, float r){
+    float t = r / max(min(b.x, b.y), 1e-4);
+    return SQUIRCLE * (1.0 - smoothstep(0.72, 0.99, t));
+}
+
+// Rounded rect whose corners run from a circular arc (sq=0) to a
+// superellipse quadrant (sq=1) — the standard approximation to the corner
+// SwiftUI calls `.continuous`. A compass corner steps its curvature from 0
+// to 1/r at the tangent point, and on glass that shows up twice: in the
+// outline, and again in the bevel normal, which turns the same corner in
+// the same place. Sweeping the specular around a 60px corner, the arc's
+// sharpest slope change measures 1.8x the superellipse's, and it starts
+// climbing the instant the flat ends rather than easing out of it.
+//
+// Only the corner quadrant changes. On a flat one component of max(q,0) is
+// zero, and every p-norm of a single component *is* that component, so the
+// straights and the interior stay bit-identical to the circular version.
+// The two branches also agree to first order where they meet, so the normal
+// field crosses the seam without a crease.
+float sdRRect(vec2 p, vec2 b, float r, float sq){
     r = min(r, min(b.x, b.y));
     vec2 q = abs(p) - b + r;
-    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+    vec2 m = max(q, 0.0);
+    float d = length(m) + min(max(q.x, q.y), 0.0) - r;
+    if (sq > 0.001 && m.x > 0.0 && m.y > 0.0){
+        // 4-norm, no pow(): |m|4 = sqrt(sqrt(mx^4 + my^4)).
+        vec2 m2 = m * m;
+        float s  = dot(m2, m2);                 // |m|4^4
+        float l4 = sqrt(sqrt(s));
+        // A p-norm is not unit-gradient off-axis, so the raw value would
+        // read as a bevel up to 19% wider on the corner diagonal than on
+        // the flats. Dividing by |grad| puts it back on a Euclidean footing.
+        float g  = sqrt(dot(m2 * m2, m2));      // |grad l4| * l4^3
+        d = mix(d, (l4 - r) * s / max(l4 * g, 1e-6), sq);
+    }
+    return d;
 }
 
 float sdTri(vec2 p, float s){
@@ -103,7 +155,8 @@ float shapeSDF(int i, vec2 pix){
     p = mat2(c, -s, s, c) * p;
     int k = uKind[i];
     if (k == 0) return sdCircle(p, uSize[i].x);
-    if (k == 1) return sdRRect(p, uSize[i], uRad[i]);
+    if (k == 1) return sdRRect(p, uSize[i], uRad[i],
+                               squircleAmt(uSize[i], uRad[i]));
     if (k == 2) return sdTri(vec2(p.x, -p.y), uSize[i].x * 0.82) - uRad[i];
     if (k == 4) return sdPentagon(vec2(p.x, -p.y), uSize[i].x * 0.85) - uRad[i];
     return abs(sdCircle(p, uSize[i].x)) - uRad[i];   // 3: selection ring
@@ -220,6 +273,22 @@ void main(){
     // keyed to `prof` the coloured band is barely three pixels wide.
     float dispW = pow(smoothstep(0.20, 0.98, rim), 1.15);
     float spread = 1.25 * uDisp * dispW * clamp(uBend / 60.0, 0.0, 1.6);
+
+    // A filleted edge is a light pipe. Light coupling in near the silhouette
+    // hits the far wall past the critical angle, totally internally reflects,
+    // and runs around the outline — and because the index is wavelength
+    // dependent, every bend separates the colours a little further. So the
+    // fan is tightest where the rim faces the source and widest on the far
+    // side, which is why a real glass edge grades through the spectrum as it
+    // travels rather than showing one fringe width the whole way round.
+    // The normal direction stands in for how far the light has run.
+    float couple = dot(n, normalize(uKey.xy + vec2(1e-6)));
+    spread *= 1.0 + uTravel * (0.5 - 0.5 * couple);
+    // Hard cap. The per-tap scale is 1 + (0.5 - t) * spread, so past about
+    // 2.29 the longest wavelength flips sign and refracts inward — a fold
+    // across the rim rather than a fringe along it. Bend at full travel on
+    // the far side otherwise reaches 2.38.
+    spread = min(spread, 2.0);
     vec3 plain = textureLod(uBg, bgUV(vUV + offUV), aaLod).rgb;
     vec3 refr = plain;
     if (spread > 0.004){
@@ -255,10 +324,14 @@ void main(){
 
     // ---- adaptive body tint ----------------------------------------------
     // A wide mip of the wall behind gives the ambient level; the body takes
-    // that polarity so overlaid glyphs keep contrast on any wallpaper.
-    float amb = luma(textureLod(uBg, bgUV(vUV), 7.0).rgb);
+    // that polarity so overlaid glyphs keep contrast on any wallpaper. A
+    // little of the mip's hue leaks through too: colourful content behind
+    // the glass should tint it faintly, not just shift it toward black/white.
+    vec3 ambCol = textureLod(uBg, bgUV(vUV), 7.0).rgb;
+    float amb = luma(ambCol);
     vec3 adapt = mix(vec3(0.055, 0.060, 0.072), vec3(1.0),
                      smoothstep(0.16, 0.60, amb));
+    adapt += (ambCol - vec3(amb)) * 0.15;
     vec3 body = mix(mix(vec3(rl), vec3(1.0), 0.35), adapt, uAdapt);
     vec3 glass = mix(refr, body, uOpacity);
 

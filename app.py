@@ -434,7 +434,7 @@ class State:
                  uFrost=self.val('frost') * 22.0,
                  uBend=self.val('bend') * 88.0,
                  uMergeK=4.0 + self.val('merge') * 86.0,
-                 uEdge=12.0, uAniso=1.0, uDisp=0.70,
+                 uEdge=12.0, uAniso=1.0, uDisp=0.70, uTravel=0.85,
                  # no drop shadow: the rim hairline carries the separation
                  uShadow=0.0, uShadowR=14.0,
                  uSpec=0.30, uShine=22.0,
@@ -445,7 +445,7 @@ class State:
     def ui_params(self):
         p = dict(uOpacity=0.10 + 0.18 * self.val('glass'),
                  uFrost=0.0, uBend=21.0, uMergeK=26.0,
-                 uEdge=7.0, uAniso=0.80, uDisp=0.85,
+                 uEdge=7.0, uAniso=0.80, uDisp=0.85, uTravel=0.85,
                  uShadow=0.0, uShadowR=9.0,
                  uSpec=0.34, uShine=26.0,
                  uAdapt=0.48, uSat=0.06, uRimLit=0.34)
@@ -1046,8 +1046,28 @@ class App:
 
 # ------------------------------------------------------------ headless shot
 
+def _standalone_context():
+    """A GL context with no window.
+
+    moderngl's standalone path goes through X11 by default, so `--shot` died
+    on a machine with no display — exactly where a headless screenshot is
+    worth having. Try EGL and OSMesa behind it, so this works over SSH and in
+    containers; both land on Mesa's software rasteriser when there is no GPU,
+    which is slow but pixel-correct.
+    """
+    err = None
+    for backend in (None, 'egl', 'osmesa'):
+        kw = {'backend': backend} if backend else {}
+        try:
+            return moderngl.create_context(standalone=True, require=330, **kw)
+        except Exception as exc:                      # no display, no driver
+            err = exc
+    raise RuntimeError('no usable OpenGL context (tried x11, egl, osmesa): '
+                       f'{err}')
+
+
 def shot(out_path, size=(1280, 800), image_path=None):
-    ctx = moderngl.create_context(standalone=True)
+    ctx = _standalone_context()
     tex = ctx.texture(size, 3)
     fbo = ctx.framebuffer(color_attachments=[tex])
     renderer = GlassRenderer(ctx, size)
