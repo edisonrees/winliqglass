@@ -6,7 +6,7 @@ magnified captures of an iOS 26 lock screen:
 * the rim is a *bevel* — a circular thickness profile that bends background
   light outward, hard enough near the boundary that distant background folds
   into visible compression rings;
-* dispersion is spectral, not an R/B split. Sampling six wavelengths across
+* dispersion is spectral, not an R/B split. Sampling eight wavelengths across
   the visible band and recombining them gives the orange -> green -> cyan ->
   magenta run seen hugging high-curvature corners, and it fades to nothing in
   the flat interior;
@@ -255,10 +255,14 @@ void main(){
 
     // ---- adaptive body tint ----------------------------------------------
     // A wide mip of the wall behind gives the ambient level; the body takes
-    // that polarity so overlaid glyphs keep contrast on any wallpaper.
-    float amb = luma(textureLod(uBg, bgUV(vUV), 7.0).rgb);
+    // that polarity so overlaid glyphs keep contrast on any wallpaper. A
+    // little of the mip's hue leaks through too: colourful content behind
+    // the glass should tint it faintly, not just shift it toward black/white.
+    vec3 ambCol = textureLod(uBg, bgUV(vUV), 7.0).rgb;
+    float amb = luma(ambCol);
     vec3 adapt = mix(vec3(0.055, 0.060, 0.072), vec3(1.0),
                      smoothstep(0.16, 0.60, amb));
+    adapt += (ambCol - vec3(amb)) * 0.15;
     vec3 body = mix(mix(vec3(rl), vec3(1.0), 0.35), adapt, uAdapt);
     vec3 glass = mix(refr, body, uOpacity);
 
