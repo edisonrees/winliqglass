@@ -6,19 +6,50 @@
 <title>winliqglass webgl</title>
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #0b0d12; }
-  #glass { position: fixed; inset: 0; display: block; }
-  .fallback { color: #eef; font: 15px/1.5 system-ui, sans-serif; padding: 24px; }
-  .hud {
-    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
-    color: #eef1f6; font: 600 15px/1.4 system-ui, sans-serif; text-align: center;
-    pointer-events: none; text-shadow: 0 1px 12px rgba(0,0,0,.5);
+  /* The glass canvas sits behind the content. It refracts the moving field, and
+     the content on top of it stays bold and bright so it reads against the
+     busy, shifting refraction. Clear glass is only for this case: rich media
+     behind, strong content in front. */
+  #glass { position: fixed; inset: 0; display: block; z-index: 0; }
+  .fallback { color: #eef; font: 15px/1.5 system-ui, sans-serif; padding: 24px; position: relative; z-index: 1; }
+
+  .card {
+    position: fixed;
+    z-index: 1;
+    background: transparent;
+    color: #ffffff;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    box-sizing: border-box;
+    text-shadow: 0 1px 18px rgba(0, 0, 0, 0.35);
   }
-  .hud small { display: block; margin-top: 6px; font-weight: 400; color: #b9c0d0; }
+  .card.big {
+    left: 50%; top: 50%; transform: translate(-50%, -50%);
+    width: min(460px, calc(100vw - 48px));
+    padding: 40px 36px;
+    border-radius: 28px;
+  }
+  .card.big h1 { margin: 0; font-size: 40px; font-weight: 700; letter-spacing: -0.02em; }
+  .card.big p { margin: 12px 0 0; font-size: 17px; font-weight: 500; color: #eaf0ff; }
+  .card.tag {
+    padding: 18px 22px;
+    border-radius: 20px;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .card.tag-a { right: max(24px, 12vw); top: 16vh; color: #cfe0ff; }
+  .card.tag-b { left: max(24px, 12vw); bottom: 16vh; color: #c8fff2; }
 </style>
 </head>
 <body>
 <canvas id="glass"></canvas>
-<div class="hud">Liquid Glass, WebGL2<small>move the cursor across the panes</small></div>
+
+<div class="card big">
+  <h1>Liquid Glass</h1>
+  <p>An exact WebGL2 port. Move the cursor across the surface.</p>
+</div>
+<div class="card tag tag-a">Refractive, not frosted</div>
+<div class="card tag tag-b">WebGL2</div>
 
 <script type="module">
 import { WinLiqGlass } from "./winliqglass.js";
@@ -68,28 +99,35 @@ function paintBackground(t) {
   b.globalCompositeOperation = "source-over";
 }
 
-// A shape record is a rounded rectangle in CSS pixels. The content layer
-// defaults (rim -0.12, tint alpha 0.13) are the ones that read as a milky glass
-// body with a fine bright edge, taken straight from how the renderer is driven
-// in production.
-function pane(x, y, w, h, rad) {
-  return { x, y, w, h, rad, rot: 0, kind: 1, merge: 0, rim: -0.12, tint: [1, 1, 1, 0.13] };
+// Read the glass shapes straight off the laid out content, the way it is driven
+// in production: every card is a rounded rectangle, and the refraction agrees
+// with exactly where the browser painted the box. The content layer defaults
+// (rim -0.12, tint alpha 0.13) are the milky glass body with a fine bright edge.
+function readShapes() {
+  const shapes = [];
+  for (const el of document.querySelectorAll(".card")) {
+    const rect = el.getBoundingClientRect();
+    if (rect.width < 8 || rect.height < 8) continue;
+    const rad = parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0;
+    shapes.push({
+      x: rect.left,
+      y: rect.top,
+      w: rect.width,
+      h: rect.height,
+      rad,
+      rot: 0,
+      kind: 1,
+      merge: 0,
+      rim: -0.12,
+      tint: [1, 1, 1, 0.13],
+    });
+  }
+  return shapes;
 }
 
 function layout() {
-  const W = innerWidth, H = innerHeight;
-  glass.resize(W, H);
-  const cx = W / 2, cy = H / 2;
-  const big = Math.min(460, W - 48);
-  glass.setLayers(
-    [
-      pane(cx - big / 2, cy - 150, big, 300, 28),
-      pane(cx - big / 2 - 40, cy + 170, 190, 116, 22),
-      pane(cx + big / 2 - 150, cy - 270, 210, 124, 22),
-    ],
-    [],
-    [],
-  );
+  glass.resize(innerWidth, innerHeight);
+  glass.setLayers(readShapes(), [], []);
 }
 
 layout();

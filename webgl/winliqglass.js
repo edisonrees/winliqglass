@@ -37,6 +37,7 @@ uniform float uBend;
 uniform float uEdge;
 uniform float uAniso;
 uniform float uDisp;
+uniform float uTravel;
 uniform float uShadow;
 uniform float uShadowR;
 uniform float uSpec;
@@ -209,6 +210,16 @@ void main(){
 
   float dispW = pow(smoothstep(0.20, 0.98, rim), 1.15);
   float spread = 1.25 * uDisp * dispW * clamp(uBend / 60.0, 0.0, 1.6);
+  // A filleted edge is a light pipe: light couples in near the silhouette,
+  // totally internally reflects and runs around the outline, and because the
+  // index is wavelength dependent every bend separates the colours further, so
+  // the fan is tightest where the rim faces the source and widest on the far
+  // side. The normal direction stands in for how far the light has run.
+  float couple = dot(n, normalize(uKey.xy + vec2(1e-6)));
+  spread *= 1.0 + uTravel * (0.5 - 0.5 * couple);
+  // Past about 2.29 the longest wavelength flips sign and folds across the rim
+  // rather than fringing along it, so the spread is hard capped.
+  spread = min(spread, 2.0);
   vec3 plain = textureLod(uBg, bgUV(vUV + offUV), aaLod).rgb;
   vec3 refr = plain;
   if (spread > 0.004){
@@ -302,6 +313,7 @@ function sourceParams(glass, isUi) {
       edge: 7,
       aniso: 0.80,
       disp: 0.85,
+      travel: 0.85,
       shadow: 0,
       shadowR: 9,
       spec: 0.34,
@@ -319,6 +331,7 @@ function sourceParams(glass, isUi) {
     edge: 12,
     aniso: 1,
     disp: 0.70,
+    travel: 0.85,
     shadow: 0,
     shadowR: 14,
     spec: 0.30,
@@ -611,6 +624,7 @@ export class WinLiqGlass {
     gl.uniform1f(this._loc("uEdge"), params.edge);
     gl.uniform1f(this._loc("uAniso"), params.aniso);
     gl.uniform1f(this._loc("uDisp"), params.disp);
+    gl.uniform1f(this._loc("uTravel"), params.travel);
     gl.uniform1f(this._loc("uShadow"), params.shadow);
     gl.uniform1f(this._loc("uShadowR"), params.shadowR);
     gl.uniform1f(this._loc("uSpec"), params.spec);
