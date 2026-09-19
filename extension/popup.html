@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    --bg: #f6f4f1;
+    --ink: #17161a;
+    --soft: rgba(23, 22, 26, 0.58);
+    --line: rgba(23, 22, 26, 0.14);
+    --accent: #3d6bff;
+    --r: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181c;
+      --ink: #f2f1ef;
+      --soft: rgba(242, 241, 239, 0.58);
+      --line: rgba(242, 241, 239, 0.16);
+      --accent: #7c9bff;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    width: 288px;
+    padding: 18px 18px 16px;
+    background: var(--bg);
+    color: var(--ink);
+    font: 500 13px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  h1 { margin: 0 0 2px; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+  p.sub { margin: 0 0 16px; color: var(--soft); font-size: 12px; }
+
+  .row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--r);
+    margin-bottom: 8px;
+  }
+  .row label { font-size: 13px; }
+  .row output { color: var(--soft); font-variant-numeric: tabular-nums; font-size: 12px; }
+
+  .stack { display: block; padding: 11px 12px 13px; }
+  .stack .head { display: flex; justify-content: space-between; margin-bottom: 9px; }
+
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 4px; border-radius: 2px; margin: 0;
+    background: var(--line); outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--accent); border: 0; cursor: pointer;
+  }
+
+  .toggle {
+    position: relative; width: 42px; height: 25px; flex: none;
+    border-radius: 13px; background: var(--line); cursor: pointer;
+    transition: background 220ms cubic-bezier(.32,.72,0,1);
+  }
+  .toggle[data-on="true"] { background: var(--accent); }
+  .toggle::after {
+    content: ""; position: absolute; top: 3px; left: 3px;
+    width: 19px; height: 19px; border-radius: 50%; background: #fff;
+    transition: transform 260ms cubic-bezier(.32,.72,0,1);
+  }
+  .toggle[data-on="true"]::after { transform: translateX(17px); }
+  input[type=checkbox] { position: absolute; opacity: 0; pointer-events: none; }
+
+  .note { margin: 12px 2px 0; color: var(--soft); font-size: 11.5px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<h1>Liquid Glass</h1>
+<p class="sub">Every frosted surface, refracted instead of blurred.</p>
+
+<div class="row">
+  <label for="enabled">Replace frosted surfaces</label>
+  <div class="toggle" id="toggle" data-on="true"><input type="checkbox" id="enabled" checked></div>
+</div>
+
+<div class="row stack">
+  <div class="head"><label for="intensity">Body</label><output id="intensityOut">0.16</output></div>
+  <input type="range" id="intensity" min="0" max="0.6" step="0.01" value="0.16">
+</div>
+
+<div class="row stack">
+  <div class="head"><label for="bend">Refraction</label><output id="bendOut">0.50</output></div>
+  <input type="range" id="bend" min="0" max="1" step="0.01" value="0.5">
+</div>
+
+<div class="row stack">
+  <div class="head"><label for="angle">Light from</label><output id="angleOut">0&deg;</output></div>
+  <input type="range" id="angle" min="0" max="359" step="1" value="0">
+</div>
+
+<div class="row stack">
+  <div class="head"><label for="bounce">Opposite edge</label><output id="bounceOut">0.85</output></div>
+  <input type="range" id="bounce" min="0" max="1" step="0.01" value="0.85">
+</div>
+
+<p class="note">Reload a tab after enabling. Chrome's own pages and the Web Store cannot be captured, so the glass stays off there.</p>
+
+<script src="popup.js"></script>
+</body>
+</html>

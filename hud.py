@@ -288,24 +288,6 @@ class HUD:
                         dr.line([px + 16, y, px + pw - 16, y],
                                 fill=(255, 255, 255, da), width=1)
 
-        cm = st.get('ctx')
-        if cm and cm['pop'] > 0.55:
-            fade = min((cm['pop'] - 0.55) / 0.30, 1.0)
-            ia = int(245 * fade)
-            px, py, pw, ph = cm['panel']
-            pad, items, ih = cm['pad'], cm['items'], cm['ih']
-            dr.text((px + 18, py + pad * 0.5 + 1), cm['title'], font=self.f12,
-                    fill=(255, 255, 255, int(150 * fade)), anchor='lm')
-            for i, label in enumerate(items):
-                iy = py + pad + ih * (i + 0.5)
-                if i == cm.get('hover'):
-                    dr.rounded_rectangle([px + 6, iy - ih / 2 + 3,
-                                          px + pw - 6, iy + ih / 2 - 3],
-                                         radius=11,
-                                         fill=(255, 255, 255, int(70 * fade)))
-                dr.text((px + 18, iy), label, font=self.f13,
-                        fill=(255, 255, 255, ia), anchor='lm')
-
         for label, (x, y, w, h), active in st['tabs']:
             dr.rounded_rectangle([x, y, x + w, y + h], radius=h / 2,
                                  fill=(255, 255, 255, 70 if active else 26))

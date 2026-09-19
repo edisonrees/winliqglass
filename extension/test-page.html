@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Frosted test page</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 260vh;
+    font: 500 15px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+    color: #10131a;
+    background:
+      radial-gradient(1100px 620px at 12% 8%, #ffd9a8, transparent 62%),
+      radial-gradient(900px 700px at 86% 22%, #8fd2ff, transparent 60%),
+      radial-gradient(1000px 800px at 50% 96%, #c9b6ff, transparent 64%),
+      linear-gradient(160deg, #fdf6ee, #e6ecff 58%, #f3e9ff);
+  }
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    display: flex; align-items: center; gap: 22px;
+    padding: 16px 28px;
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.5);
+  }
+  nav b { font-weight: 600; letter-spacing: -0.01em; }
+  nav a { color: inherit; text-decoration: none; opacity: 0.72; font-size: 14px; }
+
+  main { padding: 60px 28px 120px; display: grid; gap: 26px;
+         grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); max-width: 1080px; margin: 0 auto; }
+  .card {
+    padding: 26px;
+    border-radius: 26px;
+    background: rgba(255, 255, 255, 0.42);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+  }
+  .card h2 { margin: 0 0 8px; font-size: 19px; font-weight: 600; letter-spacing: -0.015em; }
+  .card p { margin: 0; opacity: 0.74; font-size: 14px; }
+  .wide { grid-column: 1 / -1; }
+  .pill {
+    position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%);
+    padding: 14px 26px; border-radius: 999px; font-weight: 600;
+    background: rgba(255, 255, 255, 0.5);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+  }
+  h1.hero { max-width: 1080px; margin: 54px auto 0; padding: 0 28px;
+            font-size: clamp(34px, 6vw, 62px); font-weight: 600; letter-spacing: -0.03em; }
+</style>
+</head>
+<body>
+<nav><b>Frosted</b><a href="#">Overview</a><a href="#">Material</a><a href="#">Notes</a></nav>
+<h1 class="hero">Four frosted surfaces on one page.</h1>
+<main>
+  <div class="card"><h2>Sticky bar</h2><p>The navigation above uses backdrop-filter with a translucent white wash.</p></div>
+  <div class="card"><h2>Cards</h2><p>These three carry a 22 pixel blur and a 42 percent white background.</p></div>
+  <div class="card"><h2>Pill</h2><p>The fixed pill at the bottom is a capsule, so its radius reaches half its height.</p></div>
+  <div class="card wide"><h2>Scrolling</h2><p>Scroll down. The background texture pans with the page and refreshes when the scroll settles.</p></div>
+</main>
+<div class="pill">Fixed capsule</div>
+</body>
+</html>

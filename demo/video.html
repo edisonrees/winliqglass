@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>winliqglass video</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    touch-action: manipulation;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  /* The video paints the wall. The canvas over it samples that same video as
+     its background texture, so the glass bends the frame it is sitting on. */
+  #clip, #glass { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #clip { object-fit: cover; z-index: 0; }
+  #glass { z-index: 1; }
+  .fallback {
+    position: fixed; inset: 0; display: grid; place-items: center; z-index: 2;
+    color: #fff; font: 500 15px -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+</style>
+</head>
+<body>
+<video id="clip" src="./action.mp4" muted loop playsinline autoplay preload="auto"></video>
+<canvas id="glass"></canvas>
+
+<script type="module">
+import { WinLiqGlass } from "../webgl/winliqglass.js";
+
+const video = document.getElementById("clip");
+const canvas = document.getElementById("glass");
+
+let glass;
+try {
+  glass = new WinLiqGlass(canvas);
+} catch (err) {
+  document.body.insertAdjacentHTML("beforeend", '<p class="fallback">This page needs WebGL2.</p>');
+  throw err;
+}
+
+glass.setDirection(-1);
+glass.setIntensity(0.14);
+glass.setMaterial({ bend: 0.52 });
+// Over a lit, moving frame the ported constants leave almost nothing to see:
+// the specular exponent is high enough to put the reflection in two pixels, and
+// `lift` pulls the highlights down over bright content, which is most of this
+// clip. A wider lobe and more of both terms is what makes the edge read.
+glass.setHighlight({
+  angle: 0,
+  bounce: 0.85,
+  strength: 2.3,
+  specular: 2.6,
+  sharpen: 0.42,
+  base: 0.14,
+});
+
+// The transport button: a disc on the content layer, and the two bars on the
+// layer above it, so the bars refract the disc's own refraction rather than
+// sitting flat on top of it. That second pass is the whole reason the pause
+// glyph reads as glass inside glass.
+function layout() {
+  glass.resize(innerWidth, innerHeight, Math.min(devicePixelRatio || 1, 2.5));
+}
+
+function shapes() {
+  const d = Math.max(104, Math.min(168, Math.min(innerWidth, innerHeight) * 0.19));
+  const cx = innerWidth / 2;
+  const cy = innerHeight / 2;
+
+  const disc = {
+    kind: 0,
+    x: cx - d / 2,
+    y: cy - d / 2,
+    w: d,
+    h: d,
+    rad: d / 2,
+    rot: 0,
+    merge: 0,
+    rim: -0.12,
+    tint: [1, 1, 1, 0.12],
+  };
+
+  const barW = d * 0.15;
+  const barH = d * 0.48;
+  const gap = d * 0.13;
+  const bar = (sign) => ({
+    kind: 1,
+    x: cx + sign * (gap / 2) - (sign < 0 ? barW : 0),
+    y: cy - barH / 2,
+    w: barW,
+    h: barH,
+    rad: barW / 2,
+    rot: 0,
+    merge: 0,
+    rim: -0.10,
+    // Solid white. The tint is mixed in at full weight, so the bars read as
+    // painted glyphs, and the rim and specular still land on their edges.
+    tint: [1, 1, 1, 1],
+  });
+
+  // A dock on the same two layers: the plate joins the content pass, the tiles
+  // ride the pass above it, so each tile refracts the plate it is sitting on.
+  const tile = Math.max(38, Math.min(54, innerWidth * 0.11));
+  const tileGap = tile * 0.46;
+  const pad = tile * 0.38;
+  const plateW = 4 * tile + 3 * tileGap + 2 * pad;
+  const plateH = tile + 2 * pad;
+  const plateX = cx - plateW / 2;
+  const plateY = innerHeight - plateH - Math.max(18, innerHeight * 0.035);
+
+  const plate = {
+    kind: 1,
+    x: plateX,
+    y: plateY,
+    w: plateW,
+    h: plateH,
+    rad: plateH * 0.42,
+    rot: 0,
+    merge: 0,
+    rim: -0.12,
+    tint: [1, 1, 1, 0.10],
+  };
+
+  const APPS = [
+    [0.80, 0.45, 0.28, 1],
+    [0.20, 0.52, 0.92, 1],
+    [0.94, 0.25, 0.35, 1],
+    [0.10, 0.10, 0.12, 1],
+  ];
+  const tiles = APPS.map((tint, i) => ({
+    kind: 1,
+    x: plateX + pad + i * (tile + tileGap),
+    y: plateY + pad,
+    w: tile,
+    h: tile,
+    rad: tile * 0.28,
+    rot: 0,
+    merge: 0,
+    rim: -0.10,
+    tint,
+  }));
+
+  return [[disc, plate], [bar(-1), bar(1), ...tiles]];
+}
+
+// ---- shimmer --------------------------------------------------------------
+// Roll turns the highlight the other way, so the light stays where it is in the
+// room while the phone moves under it, and the two hairlines travel round the
+// rim instead of sitting still. Tilt controls how glancing that light is, which
+// is what decides whether an edge catches it or goes dark.
+const light = { angle: 0, target: 0, strength: 1, targetStrength: 1,
+                spec: 1, targetSpec: 1 };
+const HI_RIM = 2.3;
+const HI_SPEC = 2.6;
+let hasOrientation = false;
+
+function onOrientation(e) {
+  if (e.gamma === null || e.gamma === undefined) return;
+  hasOrientation = true;
+  light.target = -e.gamma * 1.7;
+  const tilt = Math.max(-55, Math.min(55, (e.beta ?? 45) - 45));
+  light.targetStrength = 1 + (Math.abs(tilt) / 55) * 0.85;
+  light.targetSpec = 1 + (Math.abs(tilt) / 55) * 0.9;
+}
+
+function listenOrientation() {
+  addEventListener("deviceorientation", onOrientation, true);
+}
+
+// iOS only hands out motion after an explicit grant, and only from a gesture.
+async function askForMotion() {
+  const DOE = window.DeviceOrientationEvent;
+  if (!DOE) return;
+  if (typeof DOE.requestPermission === "function") {
+    try {
+      if ((await DOE.requestPermission()) === "granted") listenOrientation();
+    } catch {
+      // Declined, so the pointer keeps driving it.
+    }
+  }
+}
+if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission !== "function") {
+  listenOrientation();
+}
+
+// Desktop keeps the same shimmer under the cursor: the light comes from
+// whichever way the pointer sits from the middle of the screen.
+addEventListener("pointermove", (e) => {
+  if (hasOrientation) return;
+  const dx = e.clientX - innerWidth / 2;
+  const dy = e.clientY - innerHeight / 2;
+  if (Math.hypot(dx, dy) < 24) return;
+  light.target = (Math.atan2(dx, -dy) * 180) / Math.PI;
+  light.targetStrength = 1.25;
+  light.targetSpec = 1.35;
+}, { passive: true });
+
+layout();
+addEventListener("resize", layout);
+
+// Upload a frame only when the video actually produces one. Re-uploading at
+// display rate would push the same 24fps frame through texImage2D and a full
+// mipmap chain two or three times over for nothing.
+let fresh = false;
+function onVideoFrame() {
+  fresh = true;
+  if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(onVideoFrame);
+}
+if (video.requestVideoFrameCallback) video.requestVideoFrameCallback(onVideoFrame);
+
+addEventListener("pointerdown", (e) => {
+  glass.setTouch(e.clientX, e.clientY, 1);
+  askForMotion();
+  if (video.paused) video.play().catch(() => {});
+  else video.pause();
+});
+addEventListener("pointerup", () => glass.setTouch(-1e4, -1e4, 0));
+
+video.play().catch(() => {
+  // Autoplay refused, which iOS does in low power mode. The first tap starts it.
+});
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 1 / 20);
+  last = now;
+  // Orientation arrives noisy and in steps. Chasing it exponentially turns
+  // that into a sweep rather than a stutter.
+  const k = 1 - Math.exp(-dt * 6.5);
+  light.angle += (light.target - light.angle) * k;
+  light.strength += (light.targetStrength - light.strength) * k;
+  light.spec += (light.targetSpec - light.spec) * k;
+  glass.setHighlight({
+    angle: light.angle,
+    strength: HI_RIM * light.strength,
+    specular: HI_SPEC * light.spec,
+  });
+
+  if (video.readyState >= 2) {
+    if (fresh || !video.requestVideoFrameCallback) {
+      glass.setBackground(video);
+      fresh = false;
+    }
+    const [content, ui] = shapes();
+    glass.setLayers(content, ui);
+    glass.render();
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

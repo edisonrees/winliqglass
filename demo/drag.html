@@ -1,0 +1,278 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="color-scheme" content="light dark">
+<title>winliqglass drag</title>
+<style>
+  :root {
+    --ink: #1b1a17;
+    --ink-soft: rgba(27, 26, 23, 0.62);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #cfc7bb;
+    overscroll-behavior: none;
+    touch-action: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #glass { position: fixed; inset: 0; display: block; z-index: 0; }
+
+  .hint {
+    position: fixed;
+    left: max(20px, env(safe-area-inset-left));
+    top: max(18px, env(safe-area-inset-top));
+    z-index: 2;
+    font: 500 13px/1.4 var(--sans);
+    letter-spacing: 0.01em;
+    color: var(--ink-soft);
+    pointer-events: none;
+  }
+
+  /* The pane carries only its text. Everything that looks like a surface is
+     rendered by the glass underneath it, at exactly this box. */
+  .pane {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 1;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 26px 28px;
+    color: var(--ink);
+    transform-origin: 50% 50%;
+    will-change: transform;
+    cursor: grab;
+    touch-action: none;
+  }
+  .pane.held { cursor: grabbing; }
+  .pane h1 {
+    margin: 0;
+    font: 600 26px/1.05 var(--sans);
+    letter-spacing: -0.022em;
+  }
+  .pane p {
+    margin: 0;
+    font: 500 13.5px/1.45 var(--sans);
+    color: var(--ink-soft);
+  }
+  .fallback { position: fixed; inset: 0; display: grid; place-items: center;
+              font: 500 15px var(--sans); color: var(--ink); }
+</style>
+</head>
+<body>
+<canvas id="glass"></canvas>
+
+<p class="hint">winliqglass, WebGL2</p>
+
+<div class="pane" id="pane">
+  <h1>Liquid Glass</h1>
+  <p>Drag it across the wallpaper.</p>
+</div>
+
+<script type="module">
+import { WinLiqGlass } from "../webgl/winliqglass.js";
+
+const canvas = document.getElementById("glass");
+const paneEl = document.getElementById("pane");
+
+let glass;
+try {
+  glass = new WinLiqGlass(canvas);
+} catch (err) {
+  document.body.innerHTML = '<p class="fallback">This demo needs WebGL2.</p>';
+  throw err;
+}
+
+// Refract inward. The rim runs the same bevel profile the other way, so the
+// ribbons crossing the edge fold instead of easing through, and the corners
+// close into the caustic lobes a thick glass edge actually shows.
+glass.setDirection(-1);
+
+const pane = { x: 0, y: 0, w: 340, h: 200, rad: 34, scale: 1, vx: 0, vy: 0, vs: 0 };
+const MARGIN = 18;
+let held = false;
+let grabX = 0, grabY = 0;
+let rawX = 0, rawY = 0;
+let touchX = -1e4, touchY = -1e4, touchA = 0;
+let lastMove = { x: 0, y: 0, t: 0 };
+let placed = false;
+
+function bounds() {
+  return {
+    minX: MARGIN,
+    minY: MARGIN,
+    maxX: Math.max(MARGIN, innerWidth - pane.w - MARGIN),
+    maxY: Math.max(MARGIN, innerHeight - pane.h - MARGIN),
+  };
+}
+
+function layout() {
+  const w = Math.min(340, innerWidth - 2 * MARGIN - 8);
+  pane.w = Math.max(200, w);
+  pane.h = Math.round(pane.w * 0.59);
+  pane.rad = Math.round(Math.min(pane.w, pane.h) * 0.17);
+  paneEl.style.width = `${pane.w}px`;
+  paneEl.style.height = `${pane.h}px`;
+  paneEl.style.borderRadius = `${pane.rad}px`;
+
+  if (!placed) {
+    pane.x = (innerWidth - pane.w) / 2;
+    pane.y = (innerHeight - pane.h) / 2;
+    placed = true;
+  }
+  const b = bounds();
+  pane.x = Math.min(Math.max(pane.x, b.minX), b.maxX);
+  pane.y = Math.min(Math.max(pane.y, b.minY), b.maxY);
+
+  glass.resize(innerWidth, innerHeight, Math.min(devicePixelRatio || 1, 2.5));
+}
+
+// Rubber band: past the edge the pane keeps moving, at a shrinking fraction of
+// the finger, so the boundary is felt rather than hit.
+function band(value, lo, hi) {
+  if (value < lo) return lo - (lo - value) * 0.42;
+  if (value > hi) return hi + (value - hi) * 0.42;
+  return value;
+}
+
+paneEl.addEventListener("pointerdown", (e) => {
+  paneEl.setPointerCapture(e.pointerId);
+  held = true;
+  paneEl.classList.add("held");
+  grabX = e.clientX - pane.x;
+  grabY = e.clientY - pane.y;
+  rawX = pane.x;
+  rawY = pane.y;
+  pane.vx = 0;
+  pane.vy = 0;
+  lastMove = { x: e.clientX, y: e.clientY, t: performance.now() };
+  touchX = e.clientX;
+  touchY = e.clientY;
+});
+
+paneEl.addEventListener("pointermove", (e) => {
+  touchX = e.clientX;
+  touchY = e.clientY;
+  if (!held) return;
+  rawX = e.clientX - grabX;
+  rawY = e.clientY - grabY;
+  const now = performance.now();
+  const dt = Math.max(now - lastMove.t, 1) / 1000;
+  // Blend rather than replace, so one jittery sample cannot throw the flick.
+  pane.vx = pane.vx * 0.35 + ((e.clientX - lastMove.x) / dt) * 0.65;
+  pane.vy = pane.vy * 0.35 + ((e.clientY - lastMove.y) / dt) * 0.65;
+  lastMove = { x: e.clientX, y: e.clientY, t: now };
+});
+
+function release(e) {
+  if (!held) return;
+  held = false;
+  paneEl.classList.remove("held");
+  if (e && paneEl.hasPointerCapture(e.pointerId)) paneEl.releasePointerCapture(e.pointerId);
+}
+paneEl.addEventListener("pointerup", release);
+paneEl.addEventListener("pointercancel", release);
+
+addEventListener("pointermove", (e) => { touchX = e.clientX; touchY = e.clientY; });
+addEventListener("resize", layout);
+
+// Critically damped return at the edges, exponential glide in free flight.
+const K = 210;
+const C = 2 * Math.sqrt(K) * 1.04;
+const FRICTION = 0.0018;
+
+function step(dt) {
+  const b = bounds();
+
+  if (held) {
+    const tx = band(rawX, b.minX, b.maxX);
+    const ty = band(rawY, b.minY, b.maxY);
+    // Track the finger over a couple of frames instead of snapping, which
+    // keeps the refraction from stuttering on a coarse pointer stream.
+    const k = 1 - Math.exp(-dt * 34);
+    pane.x += (tx - pane.x) * k;
+    pane.y += (ty - pane.y) * k;
+  } else {
+    let ax = 0, ay = 0;
+    if (pane.x < b.minX) ax = K * (b.minX - pane.x) - C * pane.vx;
+    else if (pane.x > b.maxX) ax = K * (b.maxX - pane.x) - C * pane.vx;
+    if (pane.y < b.minY) ay = K * (b.minY - pane.y) - C * pane.vy;
+    else if (pane.y > b.maxY) ay = K * (b.maxY - pane.y) - C * pane.vy;
+
+    pane.vx = (pane.vx + ax * dt) * Math.pow(FRICTION, dt);
+    pane.vy = (pane.vy + ay * dt) * Math.pow(FRICTION, dt);
+    pane.x += pane.vx * dt;
+    pane.y += pane.vy * dt;
+  }
+
+  // Lift on pickup: a spring, so it overshoots a little and settles.
+  const target = held ? 1.035 : 1;
+  pane.vs = (pane.vs + (280 * (target - pane.scale) - 2 * Math.sqrt(280) * 0.9 * pane.vs) * dt);
+  pane.scale += pane.vs * dt;
+
+  const wantTouch = held ? 1 : 0;
+  touchA += (wantTouch - touchA) * (1 - Math.exp(-dt * (held ? 13 : 5)));
+}
+
+function shape() {
+  const s = pane.scale;
+  const w = pane.w * s;
+  const h = pane.h * s;
+  return {
+    x: pane.x + (pane.w - w) / 2,
+    y: pane.y + (pane.h - h) / 2,
+    w,
+    h,
+    rad: pane.rad * s,
+    rot: 0,
+    kind: 1,
+    merge: 0,
+    rim: -0.12,
+    tint: [1, 1, 1, 0.13],
+  };
+}
+
+const wallpaper = new Image();
+wallpaper.decoding = "async";
+wallpaper.src = "./bg-gg.jpg";
+
+let ready = false;
+wallpaper.addEventListener("load", () => {
+  // A still wallpaper only needs one upload; the mipmap chain built here is
+  // what the ambient sampling and the frost path read every frame.
+  glass.setBackground(wallpaper);
+  ready = true;
+});
+
+layout();
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 1 / 20);
+  last = now;
+  step(dt);
+
+  paneEl.style.transform =
+    `translate3d(${pane.x.toFixed(2)}px, ${pane.y.toFixed(2)}px, 0) scale(${pane.scale.toFixed(4)})`;
+
+  if (ready) {
+    glass.setTouch(touchX, touchY, touchA);
+    glass.setLayers([shape()], []);
+    glass.render();
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

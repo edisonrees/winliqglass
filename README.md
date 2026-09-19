@@ -78,39 +78,38 @@ shape picks; Shift+drag moves the menu.
 Bottom-right sliders: Glass, Frost, Bend, Merge. The circular-arrow button resets
 settings and the scene.
 
-## HTMLify
+## The browser version
 
-Right-click any element for **Export element as HTML**, **Export element as CSS**,
-or **Export whole scene as HTML**. Files land in `export/`.
+`webgl/` is the same renderer in WebGL2, and it is the way to put this material
+on a page. It is not a translation into CSS: it is the fragment shader itself,
+the same two passes, the same material constants, running on the page's own
+pixels.
 
-The translation is deliberate rather than mechanical, because a browser cannot
-run the fragment shader:
+```js
+import { createGlass } from "./webgl/winliqglass.js";
+createGlass({ background: "/wallpaper.jpg" });
+```
 
-* body — `backdrop-filter: blur() saturate()`, the one part browsers implement
-  natively;
-* lensing — an SVG `feDisplacementMap` fed by a displacement map baked from the
-  same SDF the shader uses. It is emitted per element and wired up, but
-  `backdrop-filter: url(#id)` is Chromium-only today, so the export degrades to
-  the blur alone elsewhere;
-* corners — `corner-shape: squircle`, which is a superellipse of exponent 4,
-  the same curve the shader draws. Browsers without it drop the line and keep
-  the circular `border-radius`;
-* fringe — a masked conic-gradient ring standing in for spectral separation;
-* specular — a 145° gradient sweep in `screen`, matching the shader's key/fill
-  pair;
-* shadow — a plain drop `box-shadow`.
+Mark any element `data-glass` and the refraction lands on exactly the box the
+browser laid out, radius included. `webgl/README.md` has the full API, and
+`demo/drag.html` is a draggable pane over a wallpaper.
 
-Clip-path shapes (triangle, pentagon) export as flat translucent fills:
-`backdrop-filter` does not clip reliably to `clip-path`.
+This replaces the old HTML/CSS export, which is gone. `backdrop-filter` plus a
+baked `feDisplacementMap` could approximate the body and a little of the
+lensing, and nothing else in the table above: no spectral edge, no light pipe
+fan, no adaptive tint, no bevel normal. A blurred div is the look this material
+exists to be the opposite of.
 
-`scene.html` references the wallpaper next to the sources, so open it from
-`export/` and the picture resolves.
+## Chrome extension
+
+`extension/` replaces every frosted `backdrop-filter` surface on any page with
+this renderer. Load it unpacked from `chrome://extensions`. See
+`extension/README.md`.
 
 ## Other input
 
 | Input | Action |
 | --- | --- |
-| right-click | HTMLify menu |
 | `O` or drop a file | background image |
 | `Ctrl+S` / `Ctrl+L` | save / load `scene.json` |
 | trash icon | delete selection |
@@ -124,10 +123,11 @@ Clip-path shapes (triangle, pentagon) export as flat translucent fills:
 | `engine.py` | shape model and two-pass renderer |
 | `shaders.py` | GLSL for fields and lens shading |
 | `hud.py` | Pillow icons, labels, cursor |
-| `htmlify.py` | HTML/CSS export |
 | `record.py` | scripted demo recorder to MP4 |
 | `shots.py` | looping material clips over the wallpapers |
 | `scene.json` | last saved layout |
+| `webgl/` | the browser port, the same shader in WebGL2 |
+| `extension/` | Chrome extension: every frosted surface on a page, refracted |
 | `arduino/` | the same material on a microcontroller |
 
 ## Arduino

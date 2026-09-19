@@ -29,7 +29,6 @@ Image.MAX_IMAGE_PIXELS = None   # the 6K desktop pictures trip Pillow's bomb gua
 from engine import (GlassRenderer, Shape, hit_topmost,
                     KIND_CIRCLE, KIND_RRECT, KIND_TRI, KIND_RING, KIND_PENT, MAXS)
 from hud import HUD
-import htmlify
 
 TOOLS = ['select', 'circle', 'rect', 'pill', 'tri', 'switch', 'slider']
 UTILS = ['open', 'save', 'reset', 'trash']
@@ -50,11 +49,8 @@ HINTS = {
     'switch': 'Switch · click canvas to place · tap knob, drag, let go',
     'slider': 'Slider · click canvas to place · drag knob to slide, track to move',
 }
-GLOBAL_HINT = ('  |  right-click HTMLify · Shift+drag menu · O image'
+GLOBAL_HINT = ('  |  Shift+drag menu · O image'
                ' · Ctrl+S/L scene · Del delete')
-
-CTX_ITEMS = ['Export element as HTML', 'Export element as CSS',
-             'Export whole scene as HTML']
 
 BLUE = (0.04, 0.48, 1.00, 0.95)     # systemBlue
 GREY = (0.55, 0.56, 0.60, 0.75)
@@ -292,53 +288,6 @@ class Menu:
         self.pop += ((1.0 if self.open else 0.0) - self.pop) * ease
 
 
-class ContextMenu:
-    """Right-click menu over a single element: the HTMLify export targets.
-    Scales open from the click point like the toolbar Menu does."""
-    W = 208
-    ITEM_H = 38
-    PAD = 22
-
-    def __init__(self, x, y, target, title, items):
-        self.x, self.y = x, y
-        self.target = target
-        self.title = title
-        self.items = items
-        self.open = True
-        self.pop = 0.0
-        self.hover = None
-
-    def panel_rect(self):
-        h = self.ITEM_H * len(self.items) + self.PAD + 8
-        return (self.x, self.y, self.W, h)
-
-    def item_at(self, mx, my):
-        if self.pop < 0.55:
-            return None
-        px, py, pw, ph = self.panel_rect()
-        iy0 = py + self.PAD
-        iyN = iy0 + self.ITEM_H * len(self.items)
-        if px <= mx <= px + pw and iy0 <= my <= iyN:
-            return int((my - iy0) / self.ITEM_H)
-        return None
-
-    def shapes(self):
-        if self.pop <= 0.005:
-            return []
-        px, py, pw, ph = self.panel_rect()
-        e = 1.0 - (1.0 - self.pop) ** 3
-        cx = self.x + (px + pw / 2 - self.x) * e
-        cy = self.y + (py + ph / 2 - self.y) * e
-        return [Shape(KIND_RRECT, cx, cy, max(pw / 2 * e, 4.0),
-                      max(ph / 2 * e, 4.0), rad=min(18.0, ph / 2 * e),
-                      tint=(1, 1, 1, min(0.30 * self.pop * 1.4, 0.30)),
-                      merge=False, rim=-0.16)]
-
-    def step(self, dt):
-        ease = 1.0 - math.exp(-dt * 17.0)
-        self.pop += ((1.0 if self.open else 0.0) - self.pop) * ease
-
-
 # ------------------------------------------------------------ state
 
 class State:
@@ -361,7 +310,6 @@ class State:
         self.touch = (-1e4, -1e4)   # interactive illumination centre
         self.touch_a = 0.0
         self.pressing = False
-        self.ctx_menu = None        # right-click HTMLify menu
         self.cursor = None          # (x, y, down) drawn by the recorder only
         self.layout(size)
 
@@ -412,8 +360,6 @@ class State:
         out.extend(sw.knob_shape() for sw in self.switches)
         for m in self.menus:
             out.extend(m.shapes())
-        if self.ctx_menu is not None:
-            out.extend(self.ctx_menu.shapes())
         return out[:MAXS]
 
     def light_dirs(self):
@@ -469,12 +415,7 @@ class State:
                         pad=m.PAD, ih=m.ITEM_H,
                         items=[(lbl, ic) for lbl, ic, _ in m.ITEMS],
                         hover=m.hover)
-                   for m in self.menus],
-            ctx=None if self.ctx_menu is None else
-                dict(pop=self.ctx_menu.pop, panel=self.ctx_menu.panel_rect(),
-                     pad=self.ctx_menu.PAD, ih=self.ctx_menu.ITEM_H,
-                     title=self.ctx_menu.title, items=self.ctx_menu.items,
-                     hover=self.ctx_menu.hover))
+                   for m in self.menus])
 
     def say(self, msg, secs=2.5):
         self.toast = msg
@@ -490,10 +431,6 @@ class State:
             sw.step(dt)
         for m in self.menus:
             m.step(dt)
-        if self.ctx_menu is not None:
-            self.ctx_menu.step(dt)
-            if not self.ctx_menu.open and self.ctx_menu.pop < 0.01:
-                self.ctx_menu = None
 
 
 def demo_scene(state):
@@ -688,40 +625,6 @@ class App:
                 return sw
         return hit_topmost(st.content, mx, my)
 
-    def _open_ctx(self, mx, my):
-        st = self.state
-        target = self._pick(mx, my)
-        if target is None:
-            st.ctx_menu = None
-            st.say('Right-click an element to HTMLify it')
-            return
-        st.selected = target
-        _, title = htmlify.describe(target)
-        x = min(mx, st.size[0] - ContextMenu.W - 12)
-        h = ContextMenu.ITEM_H * len(CTX_ITEMS) + ContextMenu.PAD + 8
-        y = min(my, st.size[1] - h - 12)
-        st.ctx_menu = ContextMenu(x, y, target, 'HTMLify · ' + title,
-                                  list(CTX_ITEMS))
-        self.hud_dirty = True
-
-    def _run_ctx(self, idx):
-        st = self.state
-        cm = st.ctx_menu
-        if cm is None:
-            return
-        try:
-            if idx == 2:
-                p = htmlify.write_scene(st, base=HERE,
-                                        bg=os.path.basename(WALLPAPER))
-            else:
-                p = htmlify.write_element(cm.target, base=HERE, as_css=idx == 1)
-            st.say('Wrote %s' % os.path.relpath(p, HERE))
-        except Exception as e:
-            st.say('Export failed: %s' % e)
-        cm.open = False
-        st.ctx_menu = cm if cm.pop > 0.01 else None
-        self.hud_dirty = True
-
     def _add(self, mx, my):
         st = self.state
         kind = st.tool
@@ -786,12 +689,6 @@ class App:
 
         if st.pressing:
             st.touch = (mx, my)
-        cm = st.ctx_menu
-        if cm is not None:
-            h = cm.item_at(mx, my)
-            if h != cm.hover:
-                cm.hover = h
-                self.hud_dirty = True
 
         if self.active_slider is not None:
             self.active_slider.set_value(mx)
@@ -839,25 +736,11 @@ class App:
             self.drag_menu = None
             return
 
-        if button == glfw.MOUSE_BUTTON_RIGHT and action == glfw.PRESS:
-            self._open_ctx(mx, my)
-            return
-
         if button != glfw.MOUSE_BUTTON_LEFT or action != glfw.PRESS:
             return
 
         st.pressing = True
         st.touch = (mx, my)
-
-        # an open HTMLify menu eats the next click
-        if st.ctx_menu is not None and st.ctx_menu.open:
-            idx = st.ctx_menu.item_at(mx, my)
-            if idx is not None:
-                self._run_ctx(idx)
-            else:
-                st.ctx_menu.open = False
-                self.hud_dirty = True
-            return
 
         shift = mods & glfw.MOD_SHIFT
 
@@ -998,8 +881,6 @@ class App:
             self._delete_selected()
         elif key == glfw.KEY_ESCAPE:
             st.selected = None
-            if st.ctx_menu is not None:
-                st.ctx_menu.open = False
         elif key == glfw.KEY_Q and isinstance(st.selected, Shape):
             st.selected.rot -= 0.06
         elif key == glfw.KEY_E and isinstance(st.selected, Shape):
@@ -1028,8 +909,6 @@ class App:
             st.step(dt)
 
             popping = [m.pop for m in st.menus]
-            if st.ctx_menu is not None:
-                popping.append(st.ctx_menu.pop)
             if any(0.001 < p < 0.999 for p in popping):
                 self.hud_dirty = True
             if self.hud_dirty:

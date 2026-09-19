@@ -1,0 +1,40 @@
+{
+  "name": "winliqglass",
+  "version": "1.0.0",
+  "description": "Refractive liquid glass for the browser: a WebGL2 lens that bends what is behind it, with a spectral rim, a bevel and a two lobe highlight.",
+  "type": "module",
+  "main": "./winliqglass.js",
+  "module": "./winliqglass.js",
+  "types": "./winliqglass.d.ts",
+  "exports": {
+    ".": {
+      "types": "./winliqglass.d.ts",
+      "default": "./winliqglass.js"
+    }
+  },
+  "files": [
+    "winliqglass.js",
+    "winliqglass.d.ts",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "keywords": [
+    "webgl2",
+    "glass",
+    "liquid-glass",
+    "refraction",
+    "sdf",
+    "shader",
+    "ui"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edisonrees/winliqglass.git",
+    "directory": "webgl"
+  },
+  "homepage": "https://github.com/edisonrees/winliqglass/tree/webgl/webgl",
+  "engines": {
+    "node": ">=18"
+  }
+}

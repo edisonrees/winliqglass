@@ -16,8 +16,7 @@ import sys
 
 from PIL import Image
 
-import htmlify
-from app import (CTX_ITEMS, ContextMenu, HERE, State, _standalone_context,
+from app import (HERE, State, _standalone_context,
                  default_background, demo_scene)
 from engine import GlassRenderer
 from hud import HUD
@@ -50,7 +49,7 @@ class Demo:
     """One scripted pass: shapes dragged, switches toggled, sliders moved,
     menus opened. Times are seconds."""
 
-    DURATION = 14.6
+    DURATION = 14.0
 
     def __init__(self, state):
         self.st = state
@@ -72,8 +71,6 @@ class Demo:
         }
         self.cursor = (self.circle.x, self.circle.y)
         self.down = False
-        self.ctx_shown = False
-        self.exported = False
 
     # -- helpers ---------------------------------------------------------
 
@@ -166,32 +163,10 @@ class Demo:
         elif t > 11.9:
             self.bend.active = False
 
-        # 6. morph the toolbar menu open, then the HTMLify right-click menu
-        self.menu.open = 12.0 < t < 12.8
-        if 12.0 < t < 12.8:
+        # 6. morph the toolbar menu open
+        self.menu.open = 12.0 < t < 13.4
+        if 12.0 < t < 13.4:
             self.cursor = (self.menu.x, self.menu.y)
-        cx = min(self.pill.x + 0.03 * W, W - ContextMenu.W - 16)
-        cy = min(self.pill.y + 0.06 * H, H - 220)
-        if t >= 12.9 and not self.ctx_shown:
-            self.ctx_shown = True
-            st.ctx_menu = ContextMenu(cx, cy, self.pill,
-                                      'HTMLify · Rounded rect', list(CTX_ITEMS))
-        if st.ctx_menu is not None and t >= 12.9:
-            self.cursor = (cx, cy)
-            if t > 13.5:
-                st.ctx_menu.hover = 0
-                self.cursor = (cx + 34, cy + ContextMenu.PAD
-                               + ContextMenu.ITEM_H * 0.5)
-            if t > 13.9 and not self.exported:
-                # actually run the export the menu is pointing at, so the
-                # toast in the last shot reports a file that really exists
-                self.exported = True
-                try:
-                    p = htmlify.write_element(self.pill, base=HERE)
-                    st.say('Wrote %s' % os.path.relpath(p, HERE), secs=4.0)
-                except Exception as e:
-                    st.say('Export failed: %s' % e, secs=4.0)
-                st.ctx_menu.open = False
 
         st.pressing = self.down
         if self.down:

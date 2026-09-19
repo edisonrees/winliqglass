@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>winliqglass site test</title>
+<style>
+  :root {
+    --ink: #1a1815;
+    --soft: rgba(26, 24, 21, 0.60);
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --gutter: clamp(16px, 5vw, 64px);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    color: var(--ink);
+    font-family: var(--sans);
+    background: #d8d0c4;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Every surface below is transparent. The glass canvas sits behind the page
+     and draws each marked box, so nothing here paints its own panel. */
+  .layer { position: relative; z-index: 1; }
+
+  nav {
+    position: fixed;
+    left: 50%;
+    top: 18px;
+    transform: translateX(-50%);
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: clamp(14px, 3vw, 30px);
+    padding: 13px 24px;
+    border-radius: 24px;
+    width: min(760px, calc(100vw - 2 * var(--gutter)));
+  }
+  nav b { font-weight: 600; font-size: 15px; letter-spacing: -0.01em; }
+  nav span { margin-left: auto; font-size: 13px; color: var(--soft); }
+  nav a { font-size: 13.5px; color: var(--soft); text-decoration: none; }
+
+  header {
+    min-height: 100svh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 120px var(--gutter) 80px;
+  }
+  h1 {
+    margin: 0;
+    max-width: 14ch;
+    font-size: clamp(44px, 9vw, 116px);
+    font-weight: 600;
+    line-height: 0.95;
+    letter-spacing: -0.045em;
+  }
+  header p {
+    margin: 26px 0 0;
+    max-width: 46ch;
+    font-size: clamp(15px, 1.7vw, 19px);
+    line-height: 1.5;
+    color: var(--soft);
+  }
+
+  section { padding: 0 var(--gutter) 140px; }
+  .cards {
+    display: grid;
+    gap: 22px;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    max-width: 1180px;
+    margin: 0 auto;
+  }
+  .card { padding: 30px 28px 34px; border-radius: 30px; min-height: 210px; }
+  .card h2 { margin: 0 0 10px; font-size: 19px; font-weight: 600; letter-spacing: -0.015em; }
+  .card p { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--soft); }
+  .card .n { display: block; margin-bottom: 16px; font-size: 12px; color: var(--soft);
+             font-variant-numeric: tabular-nums; }
+
+  .panel {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    z-index: 3;
+    display: flex;
+    align-items: center;
+    gap: clamp(16px, 3vw, 28px);
+    padding: 16px 26px;
+    border-radius: 26px;
+    width: min(620px, calc(100vw - 2 * var(--gutter)));
+    flex-wrap: wrap;
+  }
+  .dial { display: flex; flex-direction: column; gap: 7px; flex: 1 1 180px; min-width: 150px; }
+  .dial .head { display: flex; justify-content: space-between; font-size: 12.5px; }
+  .dial .head b { font-weight: 600; }
+  .dial .head output { color: var(--soft); font-variant-numeric: tabular-nums; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 3px; margin: 0; border-radius: 2px; outline: none;
+    background: rgba(26, 24, 21, 0.22);
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%; border: 0; cursor: pointer;
+    background: #1a1815;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 16px; height: 16px; border-radius: 50%; border: 0; cursor: pointer;
+    background: #1a1815;
+  }
+  .fallback { padding: 60px var(--gutter); font-size: 15px; }
+</style>
+</head>
+<body>
+
+<nav data-glass-ui data-glass-rim="-0.10">
+  <b>winliqglass</b>
+  <a href="#material">Material</a>
+  <a href="#surfaces">Surfaces</a>
+  <span>WebGL2</span>
+</nav>
+
+<header class="layer">
+  <h1>Glass that bends the wall behind it.</h1>
+  <p>Not a blur. A lens: the rim compresses what sits behind it, splits it across
+     eight wavelengths, and carries a hairline on the edge facing the light and
+     on the edge facing away.</p>
+</header>
+
+<section id="surfaces">
+  <div class="cards">
+    <article class="card layer" data-glass><span class="n">01</span>
+      <h2>Two lobes</h2>
+      <p>The highlight answers on both sides of the axis. Drag the light around
+         and watch which edges keep their line.</p></article>
+    <article class="card layer" data-glass><span class="n">02</span>
+      <h2>Spectral rim</h2>
+      <p>Dispersion tracks the bevel, so the interior stays clean and the fringe
+         piles up where the curvature is highest.</p></article>
+    <article class="card layer" data-glass><span class="n">03</span>
+      <h2>Adaptive body</h2>
+      <p>A wide mip of the wallpaper sets the polarity, so text on top keeps its
+         contrast over anything.</p></article>
+  </div>
+</section>
+
+<section id="material">
+  <div class="cards">
+    <article class="card layer" data-glass><span class="n">04</span>
+      <h2>Real boxes</h2>
+      <p>Each pane is read off the laid out element, radius included, so the
+         refraction lands exactly where the browser painted it.</p></article>
+    <article class="card layer" data-glass><span class="n">05</span>
+      <h2>One call</h2>
+      <p>createGlass mounts the canvas, follows the device pixel ratio, runs the
+         frame loop and collects every marked element.</p></article>
+  </div>
+</section>
+
+<div class="panel" data-glass-ui data-glass-rim="-0.10">
+  <div class="dial">
+    <div class="head"><b>Light from</b><output id="angleOut">0&deg;</output></div>
+    <input id="angle" type="range" min="0" max="359" step="1" value="0">
+  </div>
+  <div class="dial">
+    <div class="head"><b>Opposite edge</b><output id="bounceOut">0.85</output></div>
+    <input id="bounce" type="range" min="0" max="1" step="0.01" value="0.85">
+  </div>
+</div>
+
+<script type="module">
+import { createGlass, isSupported } from "../webgl/winliqglass.js";
+
+if (!isSupported()) {
+  document.body.innerHTML = '<p class="fallback">This page needs WebGL2.</p>';
+} else {
+  const scene = createGlass({
+    background: "./bg-gg.jpg",
+    intensity: 0.13,
+    material: { bend: 0.5 },
+    highlight: { angle: 0, bounce: 0.85 },
+  });
+
+  const angle = document.getElementById("angle");
+  const bounce = document.getElementById("bounce");
+  const angleOut = document.getElementById("angleOut");
+  const bounceOut = document.getElementById("bounceOut");
+
+  const apply = () => {
+    const a = Number(angle.value);
+    const b = Number(bounce.value);
+    angleOut.textContent = `${a}°`;
+    bounceOut.textContent = b.toFixed(2);
+    scene.glass.setHighlight({ angle: a, bounce: b });
+  };
+  angle.addEventListener("input", apply);
+  bounce.addEventListener("input", apply);
+  apply();
+}
+</script>
+</body>
+</html>

@@ -2,3 +2,9 @@ __pycache__/
 *.pyc
 export/
 *.mp4
+
+# The demo clip is part of the demo.
+!demo/action.mp4
+
+# Personal screenshot, kept local.
+demo/ios27-*

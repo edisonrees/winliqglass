@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Liquid Glass for the web",
+  "version": "1.0.0",
+  "description": "Replaces every frosted backdrop-filter surface on a page with the refractive WebGL2 liquid glass renderer.",
+  "permissions": ["tabs", "storage", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Liquid Glass",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["winliqglass.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
