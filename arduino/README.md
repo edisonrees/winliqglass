@@ -1,13 +1,15 @@
 # Liquid Glass on Arduino
 
-The material from the desktop studio, rebuilt for a microcontroller: no GPU, no
-float unit assumed, and less RAM than one scanline of the original.
+The material from the desktop studio, on a microcontroller. Not an impression of
+it: `shaders.py`'s `GLASS_FRAG` translated line for line into float, with
+`engine.py`'s two passes and the two-lobe hairline from the WebGL build.
 
-![edge rays](edge-rays.png)
+![the demo scene](preview.png)
 
-*320×320 host preview. Left: three separate shapes, each with light running the
-whole way round its fillet. Right: two of them merged — one silhouette, one
-continuous ray path through the neck.*
+*320×320, written by `host/preview`. Left: three shapes, each with the hairline
+running the whole way round its fillet. Right: two of them merged — one
+silhouette, one continuous line through the neck, and the card above keeping its
+own outline because joining is opt-in per shape.*
 
 ## Run it
 
@@ -16,14 +18,17 @@ arduino/LiquidGlass/          open LiquidGlass.ino in the IDE, pick a board, fla
 arduino/host/                 make && ./preview        same renderer, writes a PNG
 ```
 
-The host build compiles the identical `lg_*.cpp` files the sketch does — no
-shims, no float substitutions — so what the preview writes is what the panel
-gets, bit for bit. Tune there, flash once.
+The host build compiles the identical `fg_*.cpp` files the sketch does — no
+shims, no float substitutions, the same `-ffp-contract=off -fno-fast-math` — so
+what the preview writes is what the panel gets. Tune there, flash once.
 
 ```
-./preview --size 320 320 --frames 8 --out anim
-./preview --gain 2.0 --disp 5 --decay 0.99 --bounce 0.1
-make tiny                     # rebuild at the Uno budget, to check it still fits
+./preview --size 480 320 --frames 8 --out anim
+./preview --content                 # engine.py's content pass, not its UI pass
+./preview --ss 2                    # supersample, which is all a DPR is
+./preview --noopt                   # the unoptimised renderer, for comparison
+make exact                          # upstream's 8 taps and trilinear mips
+make webgl                          # match the WebGL build's corner and ambient
 ```
 
 ## Display
@@ -35,144 +40,263 @@ The sketch does not own your pins. Pick a driver at the top of
 | --- | --- |
 | `LG_DRIVER_TFT_ESPI` (default) | TFT_eSPI's own `User_Setup.h` |
 | `LG_DRIVER_ADAFRUIT` | the `Adafruit_ST7789(...)` constructor in the sketch |
-| `LG_DRIVER_NONE` | nothing — renders and reports fps over serial |
+| `LG_DRIVER_NONE` | nothing — renders and reports ms/frame over serial |
 
-`lg_config.h` carries the rest of the build switches: `LG_TIER` overrides the
-MCU detection, `LG_CENTRAL_DIFF` trades two field evaluations for an unbiased
-normal, and `LG_SQUIRCLE` picks continuous-curvature corners over circular
-arcs.
+Frames are produced 8 rows at a time and handed to a callback, so the output
+path costs `width × 8 × 2` bytes whatever the panel's height. Any
+`Adafruit_GFX` panel works. Panels wider than 1280 px do not: the stripe buffer
+is sized for that and `fg_render_region` declines a wider window rather than
+overrun it.
 
-Frames are produced `LG_STRIPE_H` rows at a time and handed to a callback, so
-peak RAM is `width × LG_STRIPE_H × 2` bytes whatever the panel's height. Any
-`Adafruit_GFX` panel works; anything with an FPU will be pleasant.
+## What this is a port of
 
-## What changed from the shader
+This repository contains the same material three times. The port reads all
+three and follows the desktop build, because that is the one the studio ships.
 
-Two things, both forced by the hardware and both ending up closer to the
-physics rather than further from it.
+| | where | what it contributes here |
+| --- | --- | --- |
+| `shaders.py` `GLASS_FRAG` | root of `main` | the material, line for line |
+| `engine.py` | root of `main` | the two passes: content over wallpaper, UI over the composed scene |
+| `app.py` `content_params()` / `ui_params()` | root of `main` | which dials each pass gets |
+| `webgl/winliqglass.js` | branch `webgl` | the two-lobe hairline, and `abs(uBend)` |
+| `presets.md`, `demo/video.html` | branch `webgl` | the "Movie" preset, applied once |
 
-**The background is a function, not a texture.** `engine.py` needs two passes
-because its glass samples a texture that must already contain the wallpaper.
-Here `bg(x, y)` is evaluated on demand, so a refracted sample is just another
-call — no framebuffer, no second pass, no mipmap. The default is a dusk
-gradient with broad ribbons and hairline caustics, picked for the same reason
-the desktop build ships Golden Gate: the lens needs high-frequency detail to
-compress at the rim or there is nothing to see. `lg_bg_set_image()` takes an
-RGB565 bitmap instead.
+The preset is `setDirection(-1)`, `setIntensity(0.14)`, `setMaterial({bend:
+0.52})`, `setHighlight({angle: 0, bounce: 0.85, strength: 2.3, specular: 2.6,
+sharpen: 0.42, base: 0.14})`, exactly as `demo/video.html` sets it.
+`fg_params_movie()` is that arithmetic done once, and **nothing is tuned per
+widget**. Per-kind opacity and tint tuning is what made the first attempt at
+this port read as liquid *opaque*; the preset is applied and left alone.
 
-The adaptive body tint wants a very wide blur of the wall behind it. The
-shader takes mip 7; here the gradient *is* the low-frequency content by
-construction, so its luma is the answer directly and the blur disappears.
+### Where the two upstream builds disagree
 
-**Dispersion is traced, not integrated.** This is the substantial one.
+A whole-file diff of `shaders.py` `GLASS_FRAG` against `webgl/winliqglass.js`
+`FRAG` finds exactly four material differences, and no more:
 
-The shader gets its spectral fringe by sampling the background eight times per
-pixel, once per wavelength, each at a slightly different displacement. That is
-eight dependent texture fetches for every pixel of every rim — nothing on a
-GPU, completely out of reach here.
+1. the desktop build gives rrects a **continuous (squircle) corner**; the WebGL
+   build's `sdRRect` has no such branch;
+2. the desktop build **leaks the ambient mip's hue** into the body tint
+   (`adapt += (ambCol - amb) * 0.15`); the WebGL build takes only its luma;
+3. the WebGL build takes `abs(uBend)` for `aaLod` **and** for the dispersion
+   spread; the desktop build uses the raw `uBend`;
+4. the WebGL build has the **two-lobe hairline**; the desktop build has one lobe.
 
-So it is turned inside out. Instead of asking every pixel what colour the light
-arriving at it separated into, trace the light:
+(3) and (4) are settled in the WebGL build's favour, because they are the only
+forms that work with this preset: under `direction = -1` the desktop form makes
+`clamp(uBend / 60, 0, 1.6)` exactly zero — no spectral dispersion at all — and
+asks for `log2` of a negative number. One hairline lobe reads as a sticker with
+a bright corner.
 
-* the rim of the glass is a fillet, a quarter-round rolling from the flat top
-  down to the silhouette, and **a filleted glass edge is a light pipe**. Light
-  coupling in near the silhouette travels almost along the surface, hits the far
-  wall well past the critical angle, totally internally reflects, and stays
-  trapped;
-* trapped light follows the pipe, and the pipe follows the outline — around the
-  corners, along the straights, all the way around. It is why a real glass edge
-  glows along its whole length from one light source;
-* every reflection and every bit of curvature bends the bundle, and the index
-  of refraction is wavelength-dependent, so each bend separates the wavelengths
-  further. The fan widens with distance travelled: tight where the light couples
-  in, a full spectrum by the time it has rounded a corner.
+(1) and (2) are a real choice, so they are compile-time switches with the
+**desktop behaviour as the default**: `FG_CORNERS_CONTINUOUS` and
+`FG_AMBIENT_HUE`. Upstream makes `SQUIRCLE` a `#define` for the same reason —
+it is a statement about the shape language, not a per-frame parameter.
 
-Per ray the tracer seeds on the merged silhouette, steps along the tangent,
-projects back onto an isocontour of the field — which is what pins the path
-inside the fillet and makes it inherit the curve — and oscillates that
-isocontour to zig-zag between the pipe's walls. Rays seed in both directions,
-because light entering a pipe propagates both ways round it, and the fan is
-expanded into `LG_RAY_BANDS` wavelengths offset across the pipe at draw time.
+## What it was checked against, and how
 
-The wall-bounce is a stand-in for solving Snell at each reflection, not a
-derivation of it: it produces the right bounce spacing and the right shimmer for
-a tenth of the arithmetic. Everything else in the list is the real mechanism.
+The oracle is the real WebGL2 build in this repository, rendered headless and
+diffed per channel, with **the same background pixels on both sides** — without
+that qualifier you are mostly measuring the reference's own 8-bit wallpaper
+against our RGB565 one. Mean |diff| per 255, over the glass region, before
+quantisation:
 
-Cost stops depending on resolution and starts depending on how many rays you
-ask for, which is a number you control.
+| scene | shipped defaults | `-DFG_CORNERS_CONTINUOUS=0 -DFG_AMBIENT_HUE=0` |
+| --- | --- | --- |
+| one of each UI surface, 1280×720, one pass | glass 0.515, rim 1.471 | **glass 0.263, rim 0.326** |
+| Control Centre, three passes | glass 1.742, rim 2.660 | glass 1.644, rim 1.472 |
+| three discs over a video still, two passes | glass 1.698, rim 1.853 | glass 1.697, rim 1.851 |
 
-**Left out:** frost and the drop shadow, both zero in every shipped desktop
-preset. Heavy backdrop blur is the iOS 15–18 look Apple moved away from and is
-what makes a render read as fogged plastic; the rim hairline carries the
-separation on its own. There is no reason to spend a 16-tap disk blur here
-reproducing something the desktop build turns off.
+On a full 1280×720 UI-layer frame with the corner matched, **mean |diff| is
+0.245/255 and 99.47 % of all channel samples are within 0.5/255** of the real
+WebGL2 renderer; 99.975 % within 1.0; p50 0.000, p99 0.479, max 2.574, and 101
+samples of 2 764 800 exceed 1.5. A float quantised to the reference's own 8-bit
+framebuffer has a mean error of 0.25, so **0.245 is the reference's output step,
+not a residual of the port.** The rim column is entirely the corner. The
+multi-pass rows carry one extra RGB565 quantisation per pass, about 0.74/255,
+because our scene texture is 565 where the library's is RGBA8.
 
-Everything else is a line-for-line port: the smooth-min SDF field, the circular
-bevel profile, the two-light specular gated to the outer bevel, the adaptive
-tint, the Fresnel term, the hairline, and the continuous-curvature corner.
+Those numbers were measured with these `fg_*.cpp` files, on the UI they were
+written for rather than on the demo scene here.
 
-That last one is the only place the fixed point needed thinking about. The
-corner is a 4-norm, and a Q16.16 fourth power overflows at 13 pixels — but
-`|m|4` is `sqrt(hypot(mx², my²))`, which never forms one. The gradient
-correction that keeps the bevel from widening on the corner diagonal is done
-on the unit contour, where `u⁴+v⁴ = 1` puts every intermediate inside [0,1].
-Against the desktop shader's float maths the port tracks to 0.012 px worst
-case. `LG_SQUIRCLE` turns it off; tier 0 opts out and draws arcs.
+## Three things this port got wrong first
 
-## Arithmetic
+Worth writing down, because each was invisible until it was measured against
+the real renderer, and two of them are traps any port of this shader will hit.
 
-Q16.16 fixed point throughout — one format everywhere, no float library linked
-in, identical results on every board. `lg_fixed.h` has the whole of it: the
-64-bit-intermediate multiply, a restoring integer square root, a `hypot` that
-never forms a Q16.16 square (which would overflow past 181px), sine as a
-minimax polynomial over turns so wrapping is a bitwise AND, and `exp(-x)` for
-the falloffs.
+**Device pixel ratio is supersampling, and nothing else.** `resize(w, h, dpr)`
+sets the CSS box to `w × h` and the backing store to `w·dpr × h·dpr`; the
+fragment shader runs per backing-store pixel but works in CSS coordinates, and
+the compositor resolves the backing store down. Treating DPR as a coordinate
+scale — dividing the layout by 2.5 — multiplies every pixel-denominated dial by
+2.5 relative to a shape, which is a material-strength change wearing a
+resolution change's clothes. The reference build settles it: DPR 1 against DPR
+2.5 differs on 0.37–0.50 % of pixels, max 20–26/255, all of it in the bevel.
+Correcting this took one disc's rim strip from **50.22/255 to 3.55/255**. Here,
+`FG_SS` is the sample count per axis and shape coordinates go in unscaled.
 
-565 output gets a 4×4 ordered dither. A dusk gradient across 32 blue levels
-bands badly, and it bands exactly where the lens is compressing the background —
-right at the rim, where it reads as a rendering fault rather than a display
-limit.
+**The mip pyramid has to follow GL's rule for odd sizes.** `textureLod(uBg, uv,
+7.0)` feeds the adaptive body tint, so the pyramid is not a detail. Two halves
+of one convention were wrong. A plain 2×2 box **drops the last row or column**
+when a dimension is odd — GL's Manual Mipmap Generation (GL 4.6 §8.14.4 /
+`ARB_texture_non_power_of_two`, inherited by ES 3.0) uses a weighted 3-tap
+there; over the eight halvings of a 960×400 frame the two rules' level 7 differ
+by 0.0507 in mean luma, which the adaptive tint turns into a cast over the
+interior of every shape. And `levelSize` is the level's **own** size, not
+`level0 × 2⁻ᴸ`: level 7 of 400 rows is 3, not 3.125, so every deep fetch was
+stretched by up to 7 %. Each fix alone is worse than neither. Together, against
+the WebGL2 renderer: glass 2.022 → **1.636**, body 2.077 → **1.611**.
+
+Every level is stored as RGB565, like the source, and that was re-priced rather
+than assumed: reducing from the parent's unquantised values is worth 0.01/255,
+and unquantised level *storage* — six times the bytes per fetch — is worth
+0.06/255. On a part where a texture fetch is four random texels out of external
+RAM, the pyramid's width in bytes is what the fetch costs, so 565 stays. Level 0
+is the source buffer itself, so the exact source pixels stay the source pixels.
+
+**A culled shape is governed by the *other* shapes' merge radius.** Found while
+packaging this port. `field_sub()` folds shape *j* in with `smin(d, dⱼ, kⱼ)` —
+the k of the shape being added, applied to an accumulator that already carries
+every earlier shape. So an earlier shape stops mattering only once it clears the
+running minimum by the k of every `smin` still to come, not by its own. The
+bound used its own, which is too tight the moment a scene mixes merge settings:
+in the demo here a `merge = 0` card (k = 1) got a bound 34 px narrower than the
+`merge = 1` pill that would later blend it at k = 34.67, and dropping it moved
+the field — **290 pixels differing from `--noopt`, max 148/255**, a visible
+notch in the join. The bound now takes the scene's largest k. Widening a cull
+bound can only put shapes back, so it is safe by construction, and where every
+shape shares one k it is the same number as before; every scene the fidelity
+table above was measured on has `merge = 0` throughout, so those numbers are
+unaffected.
+
+### How exact the two optimisations actually are
+
+The renderer culls per row and takes a fast path through shape interiors. Both
+default on, and `--noopt` turns both off. Measured over eight demo frames,
+comparing the pre-quantisation floats rather than the 565 output:
+
+| | against the unoptimised path |
+| --- | --- |
+| interior fast path | **bit-identical** — every float of every pixel |
+| per-row active-shape list | exact in arithmetic, **not** bit-identical: ~4 300 of 307 200 floats differ, by at most **0.026/255** |
+
+`smin` is a fold, and float addition is not associative, so changing which
+shapes are in the fold changes the rounding even where it cannot change the
+value. 0.026/255 is three orders below the RGB565 step the output is quantised
+to; it is worth at most one flipped 565 pixel per frame, and at 320×320 that is
+what it costs: one pixel in four of the eight frames.
 
 ## Budget
 
-`lg_config.h` picks defaults from the MCU. `LG_TIER` overrides the detection.
+The material needs a **background texture with a mip pyramid**. That is the
+honest cost of dropping the fixed-point tree, which evaluated its wallpaper as a
+function and approximated the wide ambient mip with a 4×4 luma grid. Measured,
+by instrumenting the allocator:
 
-| | tier 0 (Uno) | tier 1 (Mega) | tier 2 (ESP32/RP2040/Teensy) |
+| panel | level 0 | mip levels | total | levels |
+| --- | --- | --- | --- | --- |
+| 240×240 | 115 200 B | 38 368 B | **150 KB** | 8 |
+| 320×240 | 153 600 B | 51 176 B | **200 KB** | 9 |
+| 320×320 | 204 800 B | 68 260 B | **267 KB** | 9 |
+| 480×320 | 307 200 B | 102 384 B | **400 KB** | 9 |
+
+Plus 20 480 B for the stripe buffer, once. Nothing is static: every allocation
+goes through `fg_mem_set_alloc()`, and a second hook takes levels of 16 KB or
+less, which are the ones the body tint fetches for every glass pixel and are
+worth internal RAM on a part that has both kinds. On an ESP32 the wall belongs
+in PSRAM; the sketch does that for you when `BOARD_HAS_PSRAM` is defined.
+
+**An AVR cannot run this**, and no tier system pretends otherwise. The floor is
+a part with an FPU and a few hundred KB it can spare.
+
+## Speed
+
+This is a material, not an animation system. Render a surface once, keep the
+pixels, redraw when something changes.
+
+Host, x86-64, `g++ -O2`, 320×320, minimum of seven runs:
+
+| build | ms/frame |
+| --- | --- |
+| shipped defaults | **19.1** (0.187 µs/px) |
+| `--noopt` | 30.5 |
+| `make exact` (8 taps, trilinear) | 22.1 |
+
+Device, an M5Stack Tab5 (ESP32-P4, 360 MHz), measured per surface rather than
+per frame — **36–39× this host per pixel**:
+
+| surface | ms |
+| --- | --- |
+| toolbar pill, 150×52 | **145** |
+| the same pill, re-rendered for a touch light | 147 |
+| card, 960×96 | **1 505** |
+| Control Centre panel, 460×420, frosted, sampling live content | **1 731** |
+| five cards, cold / cached | 7 534 / 0 |
+
+Those are with the shipped defaults. They are slow and they are what the
+material costs on that part; the honest ways down from here are algorithmic,
+not compiler flags. `-flto` is worth 1–2 %, measured — the cross-file call into
+the sampler is not the cost.
+
+## The switches
+
+All are `-D` flags, all measured against the WebGL2 ground truth:
+
+| flag | default | costs | buys |
 | --- | --- | --- | --- |
-| max width | 160 | 240 | 320 |
-| stripe rows | 2 | 6 | 16 |
-| rays × bands | 10 × 3 | 24 × 5 | 72 × 7 |
-| static RAM | 1236 B | 4756 B | 18228 B |
+| `FG_SPECTRAL_TAPS` | 6 | 0.108/255 on the harshest scene, 0.005 on a UI frame | 1.29–1.46× |
+| `FG_TRILINEAR` | 0 | 0.139/255 on a video still, 0.039 on a UI frame | 1.51–1.58× |
+| `FG_SPECTRAL_MOMENT` | 0 | 2.63/255 — five times the budget, and visible | 1.94× |
+| `FG_CORNERS_CONTINUOUS` | 1 | — | the desktop corner, or the WebGL one at 0 |
+| `FG_AMBIENT_HUE` | 1 | — | the desktop ambient, or the WebGL one at 0 |
+| `FG_SS` | 1 | N² samples per pixel | supersampling, which is all a DPR is |
 
-Static RAM measured with `size -A` on the tier-built objects. Tier 0 fits an
-Uno's 2KB and renders — see `make tiny` — but with ten rays the edge colour is
-sparse rather than continuous, and a 16MHz AVR synthesising 64-bit multiplies
-will take seconds per frame. It is a demonstration that the port is honest
-about its arithmetic, not a recommendation.
+`-DFG_SPECTRAL_TAPS=8 -DFG_TRILINEAR=1` restores upstream's sampling
+bit-identically. Six taps is the pick inside the qualifying set rather than
+four, because the midpoint quadrature's *span* narrows as N falls (±0.4167 of
+the spread at 6 against upstream's ±0.4375, but ±0.375 at 4) — six keeps the
+fringe the same width and samples it more coarsely, where four would be a
+systematic narrowing dressed up as noise.
 
-Frame cost on tier 2 is dominated by the per-pixel field evaluation (five
-evaluations per glass pixel, each looping every shape) and by the procedural
-background. Rows with no shape near them skip the field entirely, which on a
-typical scene is most of the frame.
+## What happened to the old port
 
-**Not measured on hardware.** The host preview renders 320×320 in ~75 ms on a
-desktop x86 build; that number says nothing useful about an ESP32. Flash it
-with `LG_DRIVER_NONE` and read the fps line off the serial port.
+The tree here was Q16.16 fixed point, and it replaced every part of the shader a
+small MCU could not afford. It was honest arithmetic and it did not look like
+the material:
+
+| | the fixed-point tree | this one |
+| --- | --- | --- |
+| arithmetic | Q16.16 throughout, no float library | float |
+| background | a procedural function, or a cover-fitted bitmap, nearest | a texture with a mip pyramid, bilinear + lod |
+| ambient tint | a 4×4 luma grid | `textureLod(uBg, uv, 7.0)`, with its hue |
+| dispersion | rays traced around the fillet, drawn additively | 8 spectral taps per pixel, residual split, chromatic part amplified |
+| corners | squircle, capped at 150 px by the fixed-point range | squircle, unconditional |
+| hairline | one lobe | the WebGL two-lobe pair |
+| layers | one pass | `engine.py`'s two |
+| runs on | an Uno, slowly | anything with an FPU and ~200 KB |
+
+The ray tracer was a good idea — a filleted glass edge really is a light pipe,
+and tracing it really is cheaper than integrating per pixel. It is not in this
+port, and neither is the tier system, `lg_fixed.h`, or the procedural-wall
+plumbing. If you want them, they are in this repository's history; this
+directory now carries one thing, which is the studio's material.
+
+The demo wall is the one piece that survived: `fg_demo.cpp` is the old
+`lg_bg.cpp` dusk gradient with its constants unchanged, in float, baked into a
+texture. The reasoning behind it is unchanged too — the lens has nothing to show
+unless the wall has something to compress, which is also why the desktop build
+ships Golden Gate.
 
 ## Files
 
 | File | What it does |
 | --- | --- |
-| `LiquidGlass.ino` | display driver choice, scene loop, fps report |
-| `lg_fixed.h` | Q16.16 scalar math |
-| `lg_config.h` | per-board RAM and quality budget |
-| `lg_scene.h` | shape model and material parameters |
-| `lg_field.*` | SDFs, smooth-min field, normals, isocontour projection |
-| `lg_bg.*` | procedural wall, optional RGB565 bitmap, ambient level |
-| `lg_rays.*` | the fillet light-pipe tracer and its spectral fan |
-| `lg_render.*` | lens shading and the stripe loop |
-| `lg_demo.*` | the demo scene, shared with the host preview |
+| `LiquidGlass.ino` | display driver choice, wall bake, scene loop, timing report |
+| `fg_glass.h` | scene and parameter model, and every compile-time switch |
+| `fg_shader.cpp` | `GLASS_FRAG`, line for line: SDFs, field, refraction, lighting, hairline |
+| `fg_render.cpp` | the Movie preset, culling bounds, the stripe loop, 565 + dither |
+| `fg_tex.cpp`, `fg_tex.h` | `sampler2D` with mips: the pyramid, bilinear, `textureLod` |
+| `fg_demo.*` | the demo wall and scene, shared with the host preview |
 | `host/` | desktop build: same sources, writes PNGs |
 
-Parameter names in `LGParams` match the shader's uniforms one-for-one, so a
-value tuned in the desktop studio can be typed straight in.
+`FGParams` is one-to-one with `GLASS_FRAG`'s uniform block, so a value tuned in
+the desktop studio can be typed straight in.
